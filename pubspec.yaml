@@ -1,0 +1,45 @@
+name: at_me_chat
+description: "AtMe (@Me) — Email-OTP based instant messaging app (Flutter + GetX + Supabase)."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State management, routing & DI
+  get: ^4.7.3
+
+  # Backend: Auth, PostgreSQL, Realtime, Storage
+  supabase_flutter: ^2.18.3
+
+  # Voice notes: record (.m4a / AAC) + playback
+  record: ^7.1.2
+  just_audio: ^0.10.6
+  path_provider: ^2.1.6
+
+  # Images & formatting
+  cached_network_image: ^4.0.5
+  intl: ^0.20.3
+
+  # Local persistence (session state, dark mode, preferences, SQLite offline cache)
+  shared_preferences: ^2.5.6
+  sqflite: ^2.4.5
+  path: ^1.9.1
+  image_picker: ^1.2.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
