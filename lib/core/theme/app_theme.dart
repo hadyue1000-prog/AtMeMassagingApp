@@ -149,9 +149,9 @@ class AppColors {
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: <Color>[
-      Color(0xFF26C6DA),
-      Color(0xFF0288D1),
-      Color(0xFF1565C0),
+      Color(0x7626C5DA),
+      Color.fromARGB(122, 2, 137, 209),
+      Color.fromARGB(109, 21, 101, 192),
     ],
     stops: <double>[0.0, 0.55, 1.0],
   );

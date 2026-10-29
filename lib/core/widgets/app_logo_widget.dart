@@ -65,7 +65,7 @@ class AppLogoWidget extends StatelessWidget {
           width: size,
           height: size,
           fit: BoxFit.contain,
-          filterQuality: FilterQuality.high,
+          filterQuality: FilterQuality.low,
           errorBuilder: (_, _, _) => _FallbackVectorLogo(size: size),
         ),
       ),
@@ -73,14 +73,14 @@ class AppLogoWidget extends StatelessWidget {
 
     if (!showName) {
       return Semantics(
-        label: 'AtMe',
+        label: '@Me',
         image: true,
         child: iconBox,
       );
     }
 
     return Semantics(
-      label: 'AtMe',
+      label: '@tMe',
       image: true,
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -98,7 +98,7 @@ class AppLogoWidget extends StatelessWidget {
               end: Alignment.bottomRight,
             ).createShader(bounds),
             child: Text(
-              'AtMe',
+              '@Me',
               style: TextStyle(
                 fontSize: nameFontSize ?? (size * 0.28).clamp(20.0, 32.0),
                 fontWeight: FontWeight.w900,

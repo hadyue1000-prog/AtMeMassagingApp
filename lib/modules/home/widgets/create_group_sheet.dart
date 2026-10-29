@@ -1,7 +1,11 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/supabase_constants.dart';
 import '../../../core/services/app_preferences_service.dart';
@@ -43,6 +47,97 @@ class _CreateGroupSheetContentState extends State<_CreateGroupSheetContent> {
   bool _onlyAdminsCanSend = false;
   bool _onlyAdminsCanEditInfo = true;
   bool _isSearchingRemote = false;
+  Uint8List? _avatarBytes;
+  bool _isUploadingAvatar = false;
+
+  Future<void> _pickAvatar(ImageSource source) async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? picked = await picker.pickImage(
+        source: source,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 75,
+      );
+      if (picked == null) return;
+      final Uint8List bytes = await picked.readAsBytes();
+      if (bytes.isNotEmpty) {
+        setState(() {
+          _avatarBytes = bytes;
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _showAvatarOptions(bool isAr) {
+    Get.bottomSheet(
+      GlassBottomSheet(
+        title: isAr ? 'صورة المجموعة' : 'Group Picture',
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading:
+                    const Icon(Icons.camera_alt_rounded, color: AppColors.aqua),
+                title: Text(
+                  isAr
+                      ? 'التقاط صورة بالكاميرا 📷'
+                      : 'Take a photo with camera 📷',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                onTap: () {
+                  Get.back<void>();
+                  _pickAvatar(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.photo_library_rounded,
+                  color: AppColors.aqua,
+                ),
+                title: Text(
+                  isAr
+                      ? 'اختيار صورة من المعرض 🖼️'
+                      : 'Choose photo from gallery 🖼️',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                onTap: () {
+                  Get.back<void>();
+                  _pickAvatar(ImageSource.gallery);
+                },
+              ),
+              if (_avatarBytes != null)
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: AppColors.error,
+                  ),
+                  title: Text(
+                    isAr ? 'إزالة الصورة' : 'Remove picture',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.error,
+                    ),
+                  ),
+                  onTap: () {
+                    Get.back<void>();
+                    setState(() => _avatarBytes = null);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -164,17 +259,62 @@ class _CreateGroupSheetContentState extends State<_CreateGroupSheetContent> {
                   const SizedBox(height: 16),
                   Row(
                     children: <Widget>[
-                      Container(
-                        width: 46,
-                        height: 46,
-                        decoration: const BoxDecoration(
-                          gradient: AppColors.cyanButtonGradient,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.groups_rounded,
-                          color: Colors.white,
-                          size: 24,
+                      GestureDetector(
+                        onTap: () => _showAvatarOptions(isAr),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: <Widget>[
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                gradient: AppColors.cyanButtonGradient,
+                                shape: BoxShape.circle,
+                                boxShadow: <BoxShadow>[
+                                  BoxShadow(
+                                    color: AppColors.electricCyan
+                                        .withValues(alpha: 0.35),
+                                    blurRadius: 14,
+                                  ),
+                                ],
+                              ),
+                              child: ClipOval(
+                                child: _avatarBytes != null
+                                    ? Image.memory(
+                                        _avatarBytes!,
+                                        fit: BoxFit.cover,
+                                        width: 52,
+                                        height: 52,
+                                      )
+                                    : const Icon(
+                                        Icons.groups_rounded,
+                                        color: Colors.white,
+                                        size: 28,
+                                      ),
+                              ),
+                            ),
+                            PositionedDirectional(
+                              bottom: -2,
+                              end: -2,
+                              child: Container(
+                                width: 22,
+                                height: 22,
+                                decoration: BoxDecoration(
+                                  color: AppColors.aqua,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.camera_alt_rounded,
+                                  color: Colors.white,
+                                  size: 12,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -194,11 +334,12 @@ class _CreateGroupSheetContentState extends State<_CreateGroupSheetContent> {
                             ),
                             Text(
                               isAr
-                                  ? 'ستكون أنت مؤسس ومدير المجموعة بكامل الصلاحيات 👑'
-                                  : 'You will be the group founder & admin 👑',
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                color: AppColors.textSecondary,
+                                  ? 'اضغط على الأيقونة لاختيار صورة للمجموعة 📷'
+                                  : 'Tap icon to pick a group picture 📷',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.aqua,
                               ),
                             ),
                           ],
@@ -443,16 +584,63 @@ class _CreateGroupSheetContentState extends State<_CreateGroupSheetContent> {
                             ? 'إنشاء المجموعة الآن ✨'
                             : 'Create Group Now ✨',
                         icon: Icons.check_rounded,
-                        loading: widget.homeController.isCreatingGroup.value,
+                        loading: widget.homeController.isCreatingGroup.value ||
+                            _isUploadingAvatar,
                         onPressed: () async {
+                          final String name = _nameController.text.trim();
+                          if (name.isEmpty) {
+                            Get.snackbar(
+                              isAr ? 'اسم المجموعة' : 'Group Name',
+                              isAr
+                                  ? 'يرجى كتابة اسم للمجموعة أولاً'
+                                  : 'Please enter a group name first',
+                              snackPosition: SnackPosition.TOP,
+                              backgroundColor: const Color(0xEB0B2147),
+                              colorText: Colors.white,
+                            );
+                            return;
+                          }
+
+                          setState(() => _isUploadingAvatar = true);
+                          String? uploadedAvatarUrl;
+                          if (_avatarBytes != null &&
+                              _avatarBytes!.isNotEmpty) {
+                            try {
+                              final String myId =
+                                  widget.homeController.currentUserId ??
+                                      'user';
+                              final String path =
+                                  'groups/${myId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+                              await supabase.storage
+                                  .from(SupabaseConstants.avatarsBucket)
+                                  .uploadBinary(
+                                    path,
+                                    _avatarBytes!,
+                                    fileOptions: const FileOptions(
+                                      contentType: 'image/jpeg',
+                                      upsert: true,
+                                    ),
+                                  );
+                              uploadedAvatarUrl = supabase.storage
+                                  .from(SupabaseConstants.avatarsBucket)
+                                  .getPublicUrl(path);
+                            } catch (_) {
+                              uploadedAvatarUrl =
+                                  'data:image/jpeg;base64,${base64Encode(_avatarBytes!)}';
+                            }
+                          }
+                          setState(() => _isUploadingAvatar = false);
+
                           final List<ProfileModel> chosen = _selectedUserIds
                               .map((String id) => _availableUsers[id])
                               .whereType<ProfileModel>()
                               .toList();
+
                           Get.back<void>();
                           await widget.homeController.createGroupConversation(
-                            groupName: _nameController.text,
+                            groupName: name,
                             groupDescription: _descController.text,
+                            groupAvatarUrl: uploadedAvatarUrl,
                             initialMembers: chosen,
                             onlyAdminsCanSend: _onlyAdminsCanSend,
                             onlyAdminsCanEditInfo: _onlyAdminsCanEditInfo,

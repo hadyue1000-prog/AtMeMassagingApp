@@ -339,9 +339,12 @@ void showOtherUserProfileSheet({
 }
 
 Color parseStatusColor(String hex) {
-  final String cleaned = hex.replaceAll('#', '').trim();
+  String cleaned = hex.replaceAll('#', '').replaceAll('0x', '').trim();
   if (cleaned.length == 6) {
-    final int? val = int.tryParse('FF$cleaned', radix: 16);
+    cleaned = 'FF$cleaned';
+  }
+  if (cleaned.length == 8) {
+    final int? val = int.tryParse(cleaned, radix: 16);
     if (val != null) return Color(val);
   }
   return AppColors.royalBlue;

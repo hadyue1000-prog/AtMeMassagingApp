@@ -157,11 +157,11 @@ class UserSearchController extends GetxController {
       // Case 2: Direct lookup by exact username or UUID prefix in Postgres
       if (matchedUser == null) {
         try {
-          // Direct check by username (ignores is_profile_discoverable)
+          // Direct check by username or display name (ignores is_profile_discoverable)
           final Map<String, dynamic>? userRow = await supabase
               .from(SupabaseConstants.profilesTable)
               .select(SupabaseConstants.publicProfileColumns)
-              .ilike('username', token)
+              .or('username.ilike.$token,display_name.ilike.$token')
               .neq('id', myId)
               .maybeSingle();
 
@@ -287,7 +287,10 @@ class UserSearchController extends GetxController {
   /// browse active/recent users even before typing a search query.
   Future<void> loadSuggestedUsers() async {
     final String? myId = currentUserId;
-    if (myId == null) return;
+    if (myId == null) {
+      Get.offAllNamed(AppRoutes.email);
+      return;
+    }
 
     isLoadingSuggestions.value = true;
     try {
@@ -336,6 +339,7 @@ class UserSearchController extends GetxController {
     final String? myId = currentUserId;
     if (myId == null) {
       isSearching.value = false;
+      Get.offAllNamed(AppRoutes.email);
       return;
     }
 
@@ -350,7 +354,7 @@ class UserSearchController extends GetxController {
         rows = await supabase
             .from(SupabaseConstants.profilesTable)
             .select(SupabaseConstants.publicProfileColumns)
-            .ilike('username', '%$cleaned%')
+            .or('username.ilike.%$cleaned%,display_name.ilike.%$cleaned%')
             .neq('id', myId)
             .eq('is_profile_discoverable', true)
             .order('username', ascending: true)
@@ -362,7 +366,7 @@ class UserSearchController extends GetxController {
             .select(
               'id, username, display_name, avatar_url, is_online, last_seen, created_at',
             )
-            .ilike('username', '%$cleaned%')
+            .or('username.ilike.%$cleaned%,display_name.ilike.%$cleaned%')
             .neq('id', myId)
             .order('username', ascending: true)
             .limit(30);

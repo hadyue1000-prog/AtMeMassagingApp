@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart' hide TextDirection;
@@ -47,131 +45,61 @@ class ProfileTabView extends GetView<HomeController> {
                   clipBehavior: Clip.none,
                   alignment: Alignment.center,
                   children: <Widget>[
+
                     ClipRRect(
                       borderRadius: const BorderRadius.vertical(
                         top: Radius.circular(26),
                       ),
+
                       child: SizedBox(
                         height: 125,
                         width: double.infinity,
-                        child: Obx(() {
-                          final Uint8List? coverBytes =
-                              Get.isRegistered<AppPreferencesService>()
-                                  ? AppPreferencesService
-                                      .to.profileCoverBytes.value
-                                  : null;
-                          if (coverBytes != null && coverBytes.isNotEmpty) {
-                            return Image.memory(
-                              coverBytes,
-                              fit: BoxFit.cover,
-                              gaplessPlayback: true,
-                            );
-                          }
-                          return Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: <Color>[
-                                  const Color(0xFF0D2554),
-                                  const Color(0xFF163C7E),
-                                  AppColors.deepNavy,
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                            ),
-                            child: Center(
-                              child: Icon(
-                                Icons.auto_awesome_rounded,
-                                color: Colors.white.withValues(alpha: 0.15),
-                                size: 48,
-                              ),
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-
-                    // Button to Change Profile Cover Background (خلفية غلاف المستخدم)
-                    PositionedDirectional(
-                      top: 10,
-                      end: 10,
-                      child: GestureDetector(
-                        onTap: controller.pickAndUpdateProfileCover,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 11,
-                            vertical: 5.5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.58),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.35),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              const Icon(
-                                Icons.wallpaper_rounded,
-                                size: 14,
-                                color: AppColors.aqua,
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                lang == 'ar'
-                                    ? 'تغيير الخلفية 🎨'
-                                    : 'Change Cover 🎨',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                      
                       ),
                     ),
 
                     // Overlapping Avatar with Camera update button
                     Positioned(
                       bottom: -46,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: <Widget>[
-                          Container(
-                            width: 100,
-                            height: 100,
-                            padding: const EdgeInsets.all(3.0),
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: AppColors.cyanButtonGradient,
-                              boxShadow: <BoxShadow>[
-                                BoxShadow(
-                                  color: AppColors.electricCyan.withValues(
-                                    alpha: 0.40,
-                                  ),
-                                  blurRadius: 18,
-                                  spreadRadius: 2,
+                      child: GestureDetector(
+                        onTap: controller.showAvatarOptionsSheet,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          alignment: Alignment.center,
+                          children: <Widget>[
+                            Container(
+                              width: 150,
+                              height: 150,
+                              padding: const EdgeInsets.all(3.0),
+
+                              child: ClipOval(
+                                child: buildUniversalAvatarImage(
+                                  imageUrl: profile?.avatarUrl,
+                                  fallbackText: profile?.displayName ?? '@',
+                                  radius: 46,
                                 ),
-                              ],
-                            ),
-                            child: ClipOval(
-                              child: buildUniversalAvatarImage(
-                                imageUrl: profile?.avatarUrl,
-                                fallbackText: profile?.displayName ?? '@',
-                                radius: 46,
                               ),
                             ),
-                          ),
-                          PositionedDirectional(
-                            bottom: 0,
-                            end: 0,
-                            child: GestureDetector(
-                              onTap: controller.showAvatarOptionsSheet,
+                            if (controller.isUploadingAvatar.value)
+                              Container(
+                                width: 130,
+                                height: 10,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.55),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Center(
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.8,
+                                    color: AppColors.aqua,
+                                  ),
+                                ),
+                              ),
+                            PositionedDirectional(
+                              bottom: 0,
+                              end: 0,
                               child: Container(
-                                width: 34,
+                                width: 50,
                                 height: 34,
                                 decoration: BoxDecoration(
                                   gradient: AppColors.cyanButtonGradient,
@@ -188,8 +116,8 @@ class ProfileTabView extends GetView<HomeController> {
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -243,57 +171,12 @@ class ProfileTabView extends GetView<HomeController> {
                     ),
                   ),
 
-                const SizedBox(height: 14),
 
-                // Frosted Glass Written Status Pill (Matches "دائماً نحو الأفضل 🌟" pill in reference)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: GlassCard(
-                    borderRadius: 999,
-                    isHighlighted: profile?.hasActiveStatus ?? false,
-                    onTap: () => controller.changeTab(1),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 12,
-                    ),
-                    child: Row(
-                      children: <Widget>[
-                        const Icon(
-                          Icons.auto_awesome_rounded,
-                          color: Colors.amberAccent,
-                          size: 19,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            (profile != null && profile.hasActiveStatus)
-                                ? (profile.latestStatusDisplayText.isNotEmpty
-                                      ? profile.latestStatusDisplayText
-                                      : '📷 صورة حالة')
-                                : (profile != null &&
-                                        profile.bio.trim().isNotEmpty
-                                    ? profile.bio
-                                    : 'tap_to_add_status'.tr),
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: AppColors.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(
-                          Icons.edit_rounded,
-                          size: 17,
-                          color: AppColors.textSecondary,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+             
+
+                const SizedBox(height: 12),
+
+                
               ],
             ),
           ),
@@ -615,16 +498,11 @@ class ProfileTabView extends GetView<HomeController> {
             const SizedBox(height: 18),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 14,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
                 color: parseStatusColor(profile.latestStatusColor),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.35),
-                ),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
               ),
               child: Text(
                 profile.latestStatusDisplayText.isNotEmpty
@@ -668,9 +546,7 @@ class _AccountDetailRow extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.electricCyan.withValues(alpha: 0.16),
             borderRadius: BorderRadius.circular(13),
-            border: Border.all(
-              color: AppColors.aqua.withValues(alpha: 0.3),
-            ),
+            border: Border.all(color: AppColors.aqua.withValues(alpha: 0.3)),
           ),
           child: Icon(icon, color: AppColors.aqua, size: 20),
         ),
@@ -681,10 +557,7 @@ class _AccountDetailRow extends StatelessWidget {
             children: <Widget>[
               Text(
                 label,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textSecondary,
-                ),
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
               ),
               const SizedBox(height: 2),
               Directionality(

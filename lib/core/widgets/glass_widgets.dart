@@ -814,16 +814,7 @@ class GlowingCyanButton extends StatelessWidget {
             color: Colors.white.withValues(alpha: 0.42),
             width: 1.1,
           ),
-          boxShadow: active
-              ? <BoxShadow>[
-                  BoxShadow(
-                    color: AppColors.electricCyan.withValues(alpha: 0.45),
-                    blurRadius: 22,
-                    spreadRadius: 1,
-                    offset: const Offset(0, 6),
-                  ),
-                ]
-              : null,
+         
         ),
         child: Material(
           color: Colors.transparent,
@@ -907,14 +898,7 @@ class GlowingCyanCircleButton extends StatelessWidget {
           color: Colors.white.withValues(alpha: 0.48),
           width: 1.2,
         ),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: AppColors.electricCyan.withValues(alpha: 0.48),
-            blurRadius: 18,
-            spreadRadius: 1,
-            offset: const Offset(0, 4),
-          ),
-        ],
+       
       ),
       child: Material(
         color: Colors.transparent,

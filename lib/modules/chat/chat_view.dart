@@ -146,11 +146,20 @@ class ChatView extends GetView<ChatController> {
                                               AppColors.cyanButtonGradient,
                                           shape: BoxShape.circle,
                                         ),
-                                        child: const Icon(
-                                          Icons.groups_rounded,
-                                          color: Colors.white,
-                                          size: 22,
-                                        ),
+                                        child: (controller.conversation.value?.displayAvatarUrl != null &&
+                                                controller.conversation.value!.displayAvatarUrl!.trim().isNotEmpty)
+                                            ? ClipOval(
+                                                child: buildUniversalAvatarImage(
+                                                  imageUrl: controller.conversation.value!.displayAvatarUrl,
+                                                  fallbackText: displayName,
+                                                  radius: 21,
+                                                ),
+                                              )
+                                            : const Icon(
+                                                Icons.groups_rounded,
+                                                color: Colors.white,
+                                                size: 22,
+                                              ),
                                       )
                                     else
                                       _ChatHeaderAvatar(
@@ -653,7 +662,14 @@ class _ChatBottomBar extends GetView<ChatController> {
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Obx(() {
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    _MentionSuggestionsOverlay(
+                      controller: controller,
+                      isDark: isDark,
+                    ),
+                    Obx(() {
                   // Group: only admins can send → show read-only banner for members
                   final bool _ = controller.conversation.value?.isGroup ?? false;
                   if (!controller.canCurrentUserSendMessages) {
@@ -829,8 +845,167 @@ class _ChatBottomBar extends GetView<ChatController> {
                     ],
                   );
                 }),
+                  ],
+                ),
               ),
             ),
+          ),
+        ),
+      );
+    });
+  }
+}
+
+class _MentionSuggestionsOverlay extends StatelessWidget {
+  const _MentionSuggestionsOverlay({
+    required this.controller,
+    required this.isDark,
+  });
+
+  final ChatController controller;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      if (!controller.showMentionOverlay.value ||
+          controller.mentionCandidates.isEmpty) {
+        return const SizedBox.shrink();
+      }
+
+      final List<ProfileModel> candidates = controller.mentionCandidates;
+
+      return Container(
+        constraints: const BoxConstraints(maxHeight: 190),
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: isDark
+              ? const Color(0xF20B2147)
+              : Colors.white.withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: AppColors.aqua.withValues(alpha: 0.45),
+            width: 1.2,
+          ),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.28),
+              blurRadius: 14,
+              offset: const Offset(0, -3),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+                child: Row(
+                  children: <Widget>[
+                    const Icon(
+                      Icons.alternate_email_rounded,
+                      size: 15,
+                      color: AppColors.aqua,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      AppPreferencesService.to.isArabic
+                          ? 'إشارة إلى (منشن)...'
+                          : 'Mention...',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.aqua,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  itemCount: candidates.length,
+                  separatorBuilder: (_, _) =>
+                      Divider(height: 1, color: AppColors.divider),
+                  itemBuilder: (BuildContext context, int index) {
+                    final ProfileModel user = candidates[index];
+                    final bool isGroupAdmin = controller.isGroupChat &&
+                        (controller.groupMeta?.isAdmin(user.id) ?? false);
+
+                    return InkWell(
+                      onTap: () => controller.insertMention(user),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 7,
+                        ),
+                        child: Row(
+                          children: <Widget>[
+                            SizedBox(
+                              width: 32,
+                              height: 32,
+                              child: ClipOval(
+                                child: buildUniversalAvatarImage(
+                                  imageUrl: user.avatarUrl,
+                                  fallbackText: user.displayName,
+                                  radius: 16,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Row(
+                                    children: <Widget>[
+                                      Flexible(
+                                        child: Text(
+                                          user.displayName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13.5,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                        ),
+                                      ),
+                                      if (isGroupAdmin) ...<Widget>[
+                                        const SizedBox(width: 4),
+                                        const Icon(
+                                          Icons.admin_panel_settings_rounded,
+                                          size: 14,
+                                          color: AppColors.aqua,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  Text(
+                                    user.handle,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         ),
       );

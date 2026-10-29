@@ -1,13 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/constants/supabase_constants.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/services/app_preferences_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/glass_widgets.dart';
 import '../../data/models/profile_model.dart';
 
 /// Live state of the `@username` availability check.
@@ -48,6 +52,8 @@ class AuthController extends GetxController {
   final RxString username = ''.obs;
   final Rx<UsernameStatus> usernameStatus = UsernameStatus.idle.obs;
   final RxBool isSavingProfile = false.obs;
+  final Rx<Uint8List?> avatarBytes = Rx<Uint8List?>(null);
+  final RxBool isUploadingAvatar = false.obs;
   Worker? _usernameWorker;
 
   // ---------------------------------------------------------------------------
@@ -331,6 +337,96 @@ class AuthController extends GetxController {
     }
   }
 
+  Future<void> pickAvatar(ImageSource source) async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? picked = await picker.pickImage(
+        source: source,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 75,
+      );
+      if (picked == null) return;
+      final Uint8List bytes = await picked.readAsBytes();
+      if (bytes.isNotEmpty) {
+        avatarBytes.value = bytes;
+      }
+    } catch (_) {}
+  }
+
+  void showAvatarPickerSheet() {
+    final bool isAr = Get.isRegistered<AppPreferencesService>()
+        ? AppPreferencesService.to.isArabic
+        : true;
+    Get.bottomSheet(
+      GlassBottomSheet(
+        title: isAr ? 'صورة الملف الشخصي' : 'Profile Picture',
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading:
+                    const Icon(Icons.camera_alt_rounded, color: AppColors.aqua),
+                title: Text(
+                  isAr
+                      ? 'التقاط صورة بالكاميرا 📷'
+                      : 'Take a photo with camera 📷',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                onTap: () {
+                  Get.back<void>();
+                  pickAvatar(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.photo_library_rounded,
+                  color: AppColors.aqua,
+                ),
+                title: Text(
+                  isAr
+                      ? 'اختيار صورة من المعرض 🖼️'
+                      : 'Choose photo from gallery 🖼️',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                onTap: () {
+                  Get.back<void>();
+                  pickAvatar(ImageSource.gallery);
+                },
+              ),
+              if (avatarBytes.value != null)
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: AppColors.error,
+                  ),
+                  title: Text(
+                    isAr ? 'إزالة الصورة' : 'Remove picture',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.error,
+                    ),
+                  ),
+                  onTap: () {
+                    Get.back<void>();
+                    avatarBytes.value = null;
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> saveProfile() async {
     if (isSavingProfile.value) return;
     FocusManager.instance.primaryFocus?.unfocus();
@@ -376,15 +472,44 @@ class AuthController extends GetxController {
       final String resolvedEmail = (user.email ?? email.value).toLowerCase();
       final DateTime now = DateTime.now();
 
+      String? avatarUrl;
+      final Uint8List? bytes = avatarBytes.value;
+      if (bytes != null && bytes.isNotEmpty) {
+        try {
+          final String path =
+              '${user.id}/avatar_${now.millisecondsSinceEpoch}.jpg';
+          await supabase.storage
+              .from(SupabaseConstants.avatarsBucket)
+              .uploadBinary(
+                path,
+                bytes,
+                fileOptions: const FileOptions(
+                  contentType: 'image/jpeg',
+                  upsert: true,
+                ),
+              );
+          avatarUrl = supabase.storage
+              .from(SupabaseConstants.avatarsBucket)
+              .getPublicUrl(path);
+        } catch (_) {
+          avatarUrl = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+        }
+      }
+
+      final Map<String, dynamic> upsertData = <String, dynamic>{
+        'id': user.id,
+        'email': resolvedEmail,
+        'username': handle,
+        'display_name': name,
+        'is_online': true,
+        'last_seen': now.toUtc().toIso8601String(),
+      };
+      if (avatarUrl != null) {
+        upsertData['avatar_url'] = avatarUrl;
+      }
+
       await supabase.from(SupabaseConstants.profilesTable).upsert(
-        <String, dynamic>{
-          'id': user.id,
-          'email': resolvedEmail,
-          'username': handle,
-          'display_name': name,
-          'is_online': true,
-          'last_seen': now.toUtc().toIso8601String(),
-        },
+        upsertData,
         onConflict: 'id',
       );
 
@@ -393,6 +518,7 @@ class AuthController extends GetxController {
         email: resolvedEmail,
         username: handle,
         displayName: name,
+        avatarUrl: avatarUrl,
         isOnline: true,
         isProfileDiscoverable: true,
         lastSeen: now,

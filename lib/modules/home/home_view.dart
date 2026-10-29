@@ -6,9 +6,7 @@ import 'package:get/get.dart';
 import '../../core/routes/app_routes.dart';
 import '../../core/services/app_preferences_service.dart';
 import '../../core/theme/app_theme.dart';
-import '../../core/widgets/app_logo_widget.dart';
 import '../../core/widgets/glass_widgets.dart';
-import '../../data/models/profile_model.dart';
 import 'home_controller.dart';
 import 'tabs/chats_tab_view.dart';
 import 'tabs/profile_tab_view.dart';
@@ -22,7 +20,7 @@ class HomeView extends GetView<HomeController> {
   String _titleForTab(int index) {
     switch (index) {
       case 0:
-        return 'AtMe';
+        return 'Me@';
       case 1:
         return 'statuses_title'.tr;
       case 2:
@@ -43,7 +41,6 @@ class HomeView extends GetView<HomeController> {
       final String _ = prefs.languageCode.value;
       final int currentIndex = controller.selectedTabIndex.value;
       final int unreadCount = controller.totalUnreadCount;
-      final ProfileModel? me = controller.myProfile.value;
 
       return GlassScaffoldBackground(
         child: Scaffold(
@@ -86,93 +83,18 @@ class HomeView extends GetView<HomeController> {
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: Row(
                             children: <Widget>[
-                              // Start side: Search / Mark read / Back action
-                              if (currentIndex == 0)
-                                GlassIconButton(
-                                  icon: unreadCount > 0
-                                      ? Icons.done_all_rounded
-                                      : Icons.person_search_rounded,
-                                  tooltip: unreadCount > 0
-                                      ? 'mark_all_read'.tr
-                                      : 'search_by_username'.tr,
-                                  isActive: unreadCount > 0,
-                                  onTap: unreadCount > 0
-                                      ? controller.markAllConversationsAsRead
-                                      : () => Get.toNamed(AppRoutes.search),
-                                )
-                              else
-                                GlassIconButton(
-                                  icon: Icons.arrow_back_ios_new_rounded,
-                                  iconSize: 18,
-                                  onTap: () => controller.changeTab(0),
-                                ),
 
-                              // Center: Glowing AtMe 3D brand logo + wordmark / Tab title
                               Expanded(
-                                child: Center(
-                                  child: currentIndex == 0
-                                      ? Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: <Widget>[
-                                            const AppLogoWidget(
-                                              size: 36,
-                                              showName: false,
-                                              showShadow: false,
-                                            ),
-                                            const SizedBox(width: 10),
-                                            ShaderMask(
-                                              shaderCallback: (Rect bounds) =>
-                                                  const LinearGradient(
-                                                    colors: <Color>[
-                                                      Colors.white,
-                                                      AppColors.aqua,
-                                                      AppColors.electricCyan,
-                                                    ],
-                                                    begin: Alignment.topLeft,
-                                                    end: Alignment.bottomRight,
-                                                  ).createShader(bounds),
-                                              child: Text(
-                                                'AtMe',
-                                                style: TextStyle(
-                                                  fontSize: 24,
-                                                  fontWeight: FontWeight.w900,
-                                                  letterSpacing: 0.7,
-                                                  color: isDark
-                                                      ? Colors.white
-                                                      : const ui.Color.fromARGB(255, 200, 201, 202),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        )
-                                      : Text(
-                                          _titleForTab(currentIndex),
-                                          style: TextStyle(
-                                            fontSize: 19.5,
-                                            fontWeight: FontWeight.w900,
-                                            color: AppColors.textPrimary,
-                                          ),
-                                        ),
+                                child: Text(
+                                  _titleForTab(currentIndex),
+                                  style: TextStyle(
+                                    fontSize: 19.5,
+                                    fontWeight: FontWeight.w900,
+                                    color: AppColors.textPrimary,
+                                  ),
                                 ),
                               ),
-
-                              // End side: User circular 3D GlassAvatar or Settings gear
-                              if (currentIndex == 2)
-                                GlassIconButton(
-                                  icon: Icons.settings_outlined,
-                                  onTap: () => controller.changeTab(3),
-                                )
-                              else
-                                GlassAvatar(
-                                  imageUrl: me?.avatarUrl,
-                                  fallbackText:
-                                      (me?.displayName.isNotEmpty ?? false)
-                                          ? me!.displayName
-                                          : '@',
-                                  radius: 18,
-                                  isOnline: true,
-                                  onTap: () => controller.changeTab(2),
-                                ),
+                              
                             ],
                           ),
                         ),
@@ -183,6 +105,7 @@ class HomeView extends GetView<HomeController> {
               ),
             ),
           ),
+
           body: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 860),
@@ -215,7 +138,7 @@ class HomeView extends GetView<HomeController> {
                       ),
                       const SizedBox(height: 10),
                       GlowingCyanCircleButton(
-                        icon: Icons.edit_rounded,
+                        icon: Icons.create_rounded,
                         size: 58,
                         iconSize: 25,
                         tooltip: 'new_chat_tooltip'.tr,

@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/services/app_preferences_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -51,6 +52,78 @@ class _GroupInfoSheetContentState extends State<_GroupInfoSheetContent> {
     super.dispose();
   }
 
+  void _showGroupAvatarOptions(bool isAr, bool hasAvatar) {
+    Get.bottomSheet(
+      GlassBottomSheet(
+        title: isAr ? 'صورة المجموعة' : 'Group Picture',
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                leading:
+                    const Icon(Icons.camera_alt_rounded, color: AppColors.aqua),
+                title: Text(
+                  isAr
+                      ? 'التقاط صورة بالكاميرا 📷'
+                      : 'Take a photo with camera 📷',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                onTap: () {
+                  Get.back<void>();
+                  widget.controller
+                      .updateGroupAvatarFromPicker(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.photo_library_rounded,
+                  color: AppColors.aqua,
+                ),
+                title: Text(
+                  isAr
+                      ? 'اختيار صورة من المعرض 🖼️'
+                      : 'Choose photo from gallery 🖼️',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                onTap: () {
+                  Get.back<void>();
+                  widget.controller
+                      .updateGroupAvatarFromPicker(ImageSource.gallery);
+                },
+              ),
+              if (hasAvatar)
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: AppColors.error,
+                  ),
+                  title: Text(
+                    isAr ? 'إزالة صورة المجموعة' : 'Remove group picture',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.error,
+                    ),
+                  ),
+                  onTap: () {
+                    Get.back<void>();
+                    widget.controller.removeGroupAvatar();
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool isAr = Get.isRegistered<AppPreferencesService>()
@@ -89,32 +162,99 @@ class _GroupInfoSheetContentState extends State<_GroupInfoSheetContent> {
                 Center(
                   child: Column(
                     children: <Widget>[
-                      Container(
-                        width: 78,
-                        height: 78,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: <Color>[
-                              AppColors.electricCyan,
-                              AppColors.royalBlue,
+                      // Interactive Group Avatar with Edit Badge
+                      Obx(() {
+                        final bool isUploading =
+                            widget.controller.isUpdatingGroupAvatar.value;
+                        final bool hasAvatar = meta.avatarUrl != null &&
+                            meta.avatarUrl!.trim().isNotEmpty;
+
+                        return GestureDetector(
+                          onTap: canEdit
+                              ? () => _showGroupAvatarOptions(isAr, hasAvatar)
+                              : null,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            alignment: Alignment.center,
+                            children: <Widget>[
+                              Container(
+                                width: 84,
+                                height: 84,
+                                padding: const EdgeInsets.all(3),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: <Color>[
+                                      AppColors.electricCyan,
+                                      AppColors.royalBlue,
+                                    ],
+                                  ),
+                                  shape: BoxShape.circle,
+                                  boxShadow: <BoxShadow>[
+                                    BoxShadow(
+                                      color: AppColors.electricCyan
+                                          .withValues(alpha: 0.35),
+                                      blurRadius: 18,
+                                    ),
+                                  ],
+                                ),
+                                child: ClipOval(
+                                  child: hasAvatar
+                                      ? buildUniversalAvatarImage(
+                                          imageUrl: meta.avatarUrl,
+                                          fallbackText: meta.name,
+                                          radius: 39,
+                                        )
+                                      : const Center(
+                                          child: Icon(
+                                            Icons.groups_rounded,
+                                            color: Colors.white,
+                                            size: 42,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                              if (isUploading)
+                                Container(
+                                  width: 84,
+                                  height: 84,
+                                  decoration: BoxDecoration(
+                                    color:
+                                        Colors.black.withValues(alpha: 0.55),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.8,
+                                      color: AppColors.aqua,
+                                    ),
+                                  ),
+                                ),
+                              if (canEdit && !isUploading)
+                                PositionedDirectional(
+                                  bottom: 0,
+                                  end: 0,
+                                  child: Container(
+                                    width: 28,
+                                    height: 28,
+                                    decoration: BoxDecoration(
+                                      gradient: AppColors.cyanButtonGradient,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.camera_alt_rounded,
+                                      color: Colors.white,
+                                      size: 15,
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
-                          shape: BoxShape.circle,
-                          boxShadow: <BoxShadow>[
-                            BoxShadow(
-                              color: AppColors.electricCyan.withValues(
-                                alpha: 0.35,
-                              ),
-                              blurRadius: 18,
-                            ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.groups_rounded,
-                          color: Colors.white,
-                          size: 40,
-                        ),
-                      ),
+                        );
+                      }),
                       const SizedBox(height: 12),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -148,6 +288,45 @@ class _GroupInfoSheetContentState extends State<_GroupInfoSheetContent> {
                             ),
                         ],
                       ),
+                      if (canEdit)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2, bottom: 4),
+                          child: InkWell(
+                            onTap: () => _showGroupAvatarOptions(
+                              isAr,
+                              meta.avatarUrl != null &&
+                                  meta.avatarUrl!.trim().isNotEmpty,
+                            ),
+                            borderRadius: BorderRadius.circular(14),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  const Icon(
+                                    Icons.photo_camera_rounded,
+                                    size: 14,
+                                    color: AppColors.aqua,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    isAr
+                                        ? 'تغيير صورة المجموعة'
+                                        : 'Change group picture',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.aqua,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       if (meta.description.trim().isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),

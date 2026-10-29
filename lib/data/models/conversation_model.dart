@@ -255,8 +255,8 @@ class ConversationModel {
     Map<String, dynamic> json, {
     String? currentUserId,
   }) {
-    final String user1Id = json['user1_id'] as String;
-    final String user2Id = json['user2_id'] as String;
+    final String user1Id = (json['user1_id'] ?? '') as String;
+    final String user2Id = (json['user2_id'] as String?) ?? user1Id;
     String rawLastMessage = (json['last_message'] as String?) ?? '';
 
     bool isGroupRow = (json['is_group'] as bool?) ?? false;
@@ -335,8 +335,8 @@ class ConversationModel {
 
     return ConversationModel(
       id: json['id'] as String,
-      user1Id: json['user1_id'] as String,
-      user2Id: json['user2_id'] as String,
+      user1Id: (json['user1_id'] ?? '') as String,
+      user2Id: (json['user2_id'] as String?) ?? (json['user1_id'] ?? '') as String,
       lastMessage: (json['last_message'] as String?) ?? '',
       lastMessageType: (json['last_message_type'] as String?) ??
           SupabaseConstants.messageTypeText,
@@ -374,6 +374,38 @@ class ConversationModel {
     };
   }
 
+  /// Payload used to create a new Group conversation.
+  static Map<String, dynamic> groupInsertPayload({
+    required String creatorId,
+    required String secondUserId,
+    required GroupChatMeta meta,
+    required String visibleLastMessage,
+  }) {
+    final String encodedLastMsg = encodeGroupLastMessage(
+      meta: meta,
+      visibleLastMessage: visibleLastMessage,
+    );
+    return <String, dynamic>{
+      'user1_id': creatorId,
+      'user2_id': secondUserId,
+      'is_group': true,
+      'group_name': meta.name,
+      'group_description': meta.description,
+      if (meta.avatarUrl != null && meta.avatarUrl!.isNotEmpty)
+        'group_avatar_url': meta.avatarUrl,
+      'group_owner_id': meta.ownerId,
+      'group_admins': meta.adminIds,
+      'group_members': meta.memberIds,
+      'only_admins_can_send': meta.onlyAdminsCanSend,
+      'only_admins_can_edit': meta.onlyAdminsCanEditInfo,
+      'group_invite_code': meta.inviteCode,
+      'last_message': encodedLastMsg,
+      'last_message_type': SupabaseConstants.messageTypeText,
+      'last_message_sender_id': creatorId,
+      'last_message_at': DateTime.now().toUtc().toIso8601String(),
+    };
+  }
+
   /// Payload used to update the conversation after sending a message.
   static Map<String, dynamic> lastMessagePayload({
     required String lastMessage,
@@ -392,6 +424,17 @@ class ConversationModel {
       'last_message_type': lastMessageType,
       'last_message_sender_id': senderId,
       'last_message_at': DateTime.now().toUtc().toIso8601String(),
+      if (groupMeta != null) ...<String, dynamic>{
+        'is_group': true,
+        'group_name': groupMeta.name,
+        'group_description': groupMeta.description,
+        if (groupMeta.avatarUrl != null)
+          'group_avatar_url': groupMeta.avatarUrl,
+        'group_admins': groupMeta.adminIds,
+        'group_members': groupMeta.memberIds,
+        'only_admins_can_send': groupMeta.onlyAdminsCanSend,
+        'only_admins_can_edit': groupMeta.onlyAdminsCanEditInfo,
+      },
     };
   }
 

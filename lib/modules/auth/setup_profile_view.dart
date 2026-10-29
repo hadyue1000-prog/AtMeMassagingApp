@@ -89,21 +89,60 @@ class SetupProfileView extends GetView<AuthController> {
                           padding: const EdgeInsets.all(14),
                           child: Row(
                             children: <Widget>[
-                              Container(
-                                width: 50,
-                                height: 50,
-                                decoration: const BoxDecoration(
-                                  gradient: AppColors.cyanButtonGradient,
-                                  shape: BoxShape.circle,
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  _extractInitial(name),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                              GestureDetector(
+                                onTap: controller.showAvatarPickerSheet,
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: <Widget>[
+                                    Container(
+                                      width: 54,
+                                      height: 54,
+                                      decoration: const BoxDecoration(
+                                        gradient: AppColors.cyanButtonGradient,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: ClipOval(
+                                        child: controller.avatarBytes.value !=
+                                                null
+                                            ? Image.memory(
+                                                controller.avatarBytes.value!,
+                                                width: 54,
+                                                height: 54,
+                                                fit: BoxFit.cover,
+                                              )
+                                            : Text(
+                                                _extractInitial(name),
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 22,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                      ),
+                                    ),
+                                    PositionedDirectional(
+                                      bottom: -2,
+                                      end: -2,
+                                      child: Container(
+                                        width: 20,
+                                        height: 20,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.aqua,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: Colors.white,
+                                            width: 1.5,
+                                          ),
+                                        ),
+                                        child: const Icon(
+                                          Icons.camera_alt_rounded,
+                                          color: Colors.white,
+                                          size: 11,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                               const SizedBox(width: 14),
@@ -133,6 +172,19 @@ class SetupProfileView extends GetView<AuthController> {
                                           fontSize: 14,
                                           fontWeight: FontWeight.w700,
                                         ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      controller.avatarBytes.value != null
+                                          ? 'تم تحديد صورة شخصية ✓'
+                                          : 'اضغط لاختيار صورة شخصية 📷',
+                                      style: TextStyle(
+                                        color: controller.avatarBytes.value != null
+                                            ? const Color(0xFF25D366)
+                                            : AppColors.textSecondary,
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   ],

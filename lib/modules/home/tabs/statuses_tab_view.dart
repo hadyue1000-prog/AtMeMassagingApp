@@ -20,18 +20,79 @@ final Map<String, Uint8List> _statusBase64Cache = <String, Uint8List>{};
 
 Uint8List? _getCachedStatusImage(String? base64Str) {
   if (base64Str == null || base64Str.trim().isEmpty) return null;
-  final Uint8List? cached = _statusBase64Cache[base64Str];
+  final String trimmed = base64Str.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return null;
+  }
+  final String clean =
+      trimmed.contains(',') ? trimmed.split(',').last.trim() : trimmed;
+  final Uint8List? cached = _statusBase64Cache[clean];
   if (cached != null) return cached;
   try {
-    final Uint8List decoded = base64Decode(base64Str);
+    final Uint8List decoded = base64Decode(clean);
     if (_statusBase64Cache.length > 60) {
       _statusBase64Cache.remove(_statusBase64Cache.keys.first);
     }
-    _statusBase64Cache[base64Str] = decoded;
+    _statusBase64Cache[clean] = decoded;
     return decoded;
   } catch (_) {
     return null;
   }
+}
+
+ImageProvider? getStatusImageProvider(String? imageRef) {
+  if (imageRef == null || imageRef.trim().isEmpty) return null;
+  final String trimmed = imageRef.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return CachedNetworkImageProvider(trimmed);
+  }
+  final Uint8List? bytes = _getCachedStatusImage(trimmed);
+  if (bytes != null) {
+    return MemoryImage(bytes);
+  }
+  return null;
+}
+
+Widget buildStatusImageView({
+  required String? imageRef,
+  BoxFit fit = BoxFit.contain,
+  double? width,
+  double? height,
+}) {
+  if (imageRef == null || imageRef.trim().isEmpty) {
+    return const SizedBox.shrink();
+  }
+  final String trimmed = imageRef.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return CachedNetworkImage(
+      imageUrl: trimmed,
+      fit: fit,
+      width: width,
+      height: height,
+      placeholder: (_, _) => const Center(
+        child: CircularProgressIndicator(color: AppColors.aqua),
+      ),
+      errorWidget: (_, _, _) => const Center(
+        child:
+            Icon(Icons.broken_image_rounded, color: Colors.white60, size: 40),
+      ),
+    );
+  }
+  final Uint8List? bytes = _getCachedStatusImage(trimmed);
+  if (bytes != null) {
+    return Image.memory(
+      bytes,
+      fit: fit,
+      width: width,
+      height: height,
+      gaplessPlayback: true,
+      errorBuilder: (_, _, _) => const Center(
+        child:
+            Icon(Icons.broken_image_rounded, color: Colors.white60, size: 40),
+      ),
+    );
+  }
+  return const SizedBox.shrink();
 }
 
 class StatusesTabView extends GetView<HomeController> {
@@ -73,6 +134,7 @@ class StatusesTabView extends GetView<HomeController> {
   }
 
   void _openStatusComposerSheet(BuildContext context, {bool pickImage = false}) {
+    controller.pickNextStatusColorInBackground();
     if (pickImage) {
       controller.pickStatusImage();
     }
@@ -156,8 +218,8 @@ class StatusesTabView extends GetView<HomeController> {
                         Divider(height: 12, color: AppColors.divider),
                     itemBuilder: (BuildContext context, int idx) {
                       final StatusSegmentItem seg = segments[idx];
-                      final Uint8List? imgBytes =
-                          _getCachedStatusImage(seg.imageBase64);
+                      final ImageProvider? segThumb =
+                          getStatusImageProvider(seg.imageBase64);
                       return ListTile(
                         contentPadding: EdgeInsets.zero,
                         onTap: () {
@@ -173,14 +235,14 @@ class StatusesTabView extends GetView<HomeController> {
                           decoration: BoxDecoration(
                             color: parseStatusColor(seg.colorHex),
                             borderRadius: BorderRadius.circular(14),
-                            image: imgBytes != null
+                            image: segThumb != null
                                 ? DecorationImage(
-                                    image: MemoryImage(imgBytes),
+                                    image: segThumb,
                                     fit: BoxFit.cover,
                                   )
                                 : null,
                           ),
-                          child: imgBytes == null
+                          child: segThumb == null
                               ? Center(
                                   child: Text(
                                     seg.text.isNotEmpty
@@ -659,44 +721,7 @@ class StatusesTabView extends GetView<HomeController> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-
-            // Color Palette Selector
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: HomeController.statusColorPalette.map((String hex) {
-                  final Color color = parseStatusColor(hex);
-                  final bool isSelected = selectedHex == hex;
-                  return GestureDetector(
-                    onTap: () => controller.selectedStatusColor.value = hex,
-                    child: Container(
-                      width: 30,
-                      height: 30,
-                      margin: const EdgeInsetsDirectional.only(end: 9),
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isSelected
-                              ? Colors.white
-                              : Colors.white.withValues(alpha: 0.3),
-                          width: isSelected ? 2.5 : 1.0,
-                        ),
-                      ),
-                      child: isSelected
-                          ? const Icon(
-                              Icons.check_rounded,
-                              color: Colors.white,
-                              size: 16,
-                            )
-                          : null,
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
             SizedBox(
               width: double.infinity,
@@ -873,8 +898,8 @@ class _WhatsAppStoryRingAvatar extends StatelessWidget {
     }).toList();
 
     final StatusSegmentItem? latest = profile?.latestStatusSegment;
-    final Uint8List? statusThumbBytes =
-        _getCachedStatusImage(latest?.imageBase64);
+    final ImageProvider? statusThumb =
+        getStatusImageProvider(latest?.imageBase64);
 
     return CustomPaint(
       painter: _SegmentedRingPainter(
@@ -890,13 +915,12 @@ class _WhatsAppStoryRingAvatar extends StatelessWidget {
           backgroundColor: profile != null && profile!.hasActiveStatus
               ? parseStatusColor(profile!.latestStatusColor)
               : AppColors.deepNavy,
-          backgroundImage: statusThumbBytes != null
-              ? MemoryImage(statusThumbBytes)
-              : ((profile?.avatarUrl != null && profile!.avatarUrl!.isNotEmpty)
-                    ? CachedNetworkImageProvider(profile!.avatarUrl!)
-                    : null),
+          backgroundImage: statusThumb ??
+              ((profile?.avatarUrl != null && profile!.avatarUrl!.isNotEmpty)
+                  ? CachedNetworkImageProvider(profile!.avatarUrl!)
+                  : null),
           child:
-              (statusThumbBytes == null &&
+              (statusThumb == null &&
                   (profile?.avatarUrl == null || profile!.avatarUrl!.isEmpty))
               ? Text(
                   (profile?.displayName.isNotEmpty ?? false)
@@ -979,127 +1003,137 @@ class _WhatsAppStatusComposerSheet extends StatelessWidget {
     final bool isAr = AppPreferencesService.to.isArabic;
 
     return GlassBottomSheet(
-      child: Obx(() {
-        final String selectedHex = controller.selectedStatusColor.value;
-        final Color cardColor = parseStatusColor(selectedHex);
-        final Uint8List? pickedImage =
-            controller.selectedStatusImageBytes.value;
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom + 14,
+        ),
+        child: SingleChildScrollView(
+          child: Obx(() {
+            final String selectedHex = controller.selectedStatusColor.value;
+            final Color cardColor = parseStatusColor(selectedHex);
+            final Uint8List? pickedImage =
+                controller.selectedStatusImageBytes.value;
 
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Row(
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                const Icon(
-                  Icons.add_circle_outline_rounded,
-                  color: AppColors.aqua,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    isAr ? 'إضافة حالة واتساب جديدة' : 'New Status Update',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.textPrimary,
+                Row(
+                  children: <Widget>[
+                    const Icon(
+                      Icons.add_circle_outline_rounded,
+                      color: AppColors.aqua,
                     ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: controller.pickStatusImage,
-                  icon: const Icon(
-                    Icons.photo_library_rounded,
-                    color: AppColors.aqua,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (pickedImage != null) ...<Widget>[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: Image.memory(
-                  pickedImage,
-                  height: 190,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              const SizedBox(height: 10),
-            ],
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: cardColor,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: TextField(
-                controller: controller.statusInputController,
-                maxLines: 3,
-                minLines: 2,
-                maxLength: 180,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'write_status_hint'.tr,
-                  hintStyle: const TextStyle(color: Colors.white70),
-                  border: InputBorder.none,
-                  filled: false,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: HomeController.statusColorPalette.map((String hex) {
-                  final Color c = parseStatusColor(hex);
-                  final bool sel = selectedHex == hex;
-                  return GestureDetector(
-                    onTap: () => controller.selectedStatusColor.value = hex,
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      margin: const EdgeInsetsDirectional.only(end: 8),
-                      decoration: BoxDecoration(
-                        color: c,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: sel ? Colors.white : Colors.white38,
-                          width: sel ? 2.5 : 1,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        isAr ? 'إضافة حالة واتساب جديدة' : 'New Status Update',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                          color: AppColors.textPrimary,
                         ),
                       ),
                     ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: GlowingCyanButton(
-                label: 'publish_status'.tr,
-                icon: Icons.send_rounded,
-                loading: controller.isPublishingStatus.value,
-                onPressed: () async {
-                  await controller.publishWrittenStatus(
-                    text: controller.statusInputController.text,
-                    colorHex: controller.selectedStatusColor.value,
-                  );
-                  if (Get.isBottomSheetOpen ?? false) {
-                    Get.back<void>();
-                  }
-                },
-              ),
-            ),
-          ],
-        );
-      }),
+                    IconButton(
+                      tooltip: isAr ? 'اختيار صورة' : 'Pick Image',
+                      onPressed: controller.pickStatusImage,
+                      icon: const Icon(
+                        Icons.photo_library_rounded,
+                        color: AppColors.aqua,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (pickedImage != null) ...<Widget>[
+                  Stack(
+                    children: <Widget>[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: Image.memory(
+                          pickedImage,
+                          height: 190,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      PositionedDirectional(
+                        top: 8,
+                        end: 8,
+                        child: GestureDetector(
+                          onTap: controller.clearSelectedStatusImage,
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.65),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: cardColor,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: TextField(
+                    controller: controller.statusInputController,
+                    maxLines: 3,
+                    minLines: 2,
+                    maxLength: 180,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: pickedImage != null
+                          ? (isAr
+                              ? 'أضف تعليقاً على الصورة (اختياري)...'
+                              : 'Add a caption to your photo...')
+                          : 'write_status_hint'.tr,
+                      hintStyle: const TextStyle(color: Colors.white70),
+                      border: InputBorder.none,
+                      filled: false,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: GlowingCyanButton(
+                    label: 'publish_status'.tr,
+                    icon: Icons.send_rounded,
+                    loading: controller.isPublishingStatus.value,
+                    onPressed: () async {
+                      await controller.publishWrittenStatus(
+                        text: controller.statusInputController.text,
+                        colorHex: controller.selectedStatusColor.value,
+                      );
+                      if (Get.isBottomSheetOpen ?? false) {
+                        Get.back<void>();
+                      }
+                    },
+                  ),
+                ),
+              ],
+            );
+          }),
+        ),
+      ),
     );
   }
 }
@@ -1270,7 +1304,7 @@ class _WhatsAppStoryViewerScreenState extends State<_WhatsAppStoryViewerScreen>
 
     final StatusSegmentItem segment = _currentSegment;
     final Color bgColor = parseStatusColor(segment.colorHex);
-    final Uint8List? imageBytes = _getCachedStatusImage(segment.imageBase64);
+    final bool hasImage = segment.hasImage;
 
     final bool isAr = Get.isRegistered<AppPreferencesService>()
         ? AppPreferencesService.to.isArabic
@@ -1311,12 +1345,12 @@ class _WhatsAppStoryViewerScreenState extends State<_WhatsAppStoryViewerScreen>
           fit: StackFit.expand,
           children: <Widget>[
             // 1) Full-screen Story Background (Colored Gradient or Gallery Photo)
-            if (imageBytes != null)
+            if (hasImage)
               Container(
                 color: Colors.black,
                 child: Center(
-                  child: Image.memory(
-                    imageBytes,
+                  child: buildStatusImageView(
+                    imageRef: segment.imageBase64,
                     fit: BoxFit.contain,
                     width: double.infinity,
                     height: double.infinity,
@@ -1355,7 +1389,7 @@ class _WhatsAppStoryViewerScreenState extends State<_WhatsAppStoryViewerScreen>
               ),
 
             // Photo Caption Overlay at Bottom
-            if (imageBytes != null && segment.text.trim().isNotEmpty)
+            if (hasImage && segment.text.trim().isNotEmpty)
               Positioned(
                 left: 16,
                 right: 16,

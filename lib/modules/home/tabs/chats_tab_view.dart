@@ -29,6 +29,7 @@ class ChatsTabView extends GetView<HomeController> {
               return const SizedBox.shrink();
             }
             return GlassCard(
+              
               margin: const EdgeInsets.fromLTRB(16, 10, 16, 2),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               borderRadius: 16,

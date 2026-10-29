@@ -53,13 +53,11 @@ Future<void> main() async {
 /// - No session & no offline login    → destroy local session → /email
 /// - Session + profile with username  → save local session    → /home
 /// - Session without profile          → mark logged in        → /setup-profile
+
+
 Future<String> _resolveInitialRoute(AppPreferencesService prefs) async {
   final Session? session = supabase.auth.currentSession;
   if (session == null) {
-    // If user previously logged in and has a cached profile, allow offline entry
-    if (prefs.isLoggedIn.value && prefs.cachedProfile.value != null) {
-      return AppRoutes.home;
-    }
     await prefs.destroyUserSession();
     return AppRoutes.email;
   }

@@ -64,22 +64,51 @@ class SettingsTabView extends GetView<HomeController> {
                 onTap: () => controller.changeTab(2),
                 child: Row(
                   children: <Widget>[
-                    Container(
-                      padding: const EdgeInsets.all(2.2),
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: AppColors.cyanButtonGradient,
-                      ),
-                      child: ClipOval(
-                        child: SizedBox(
-                          width: 56,
-                          height: 56,
-                          child: buildUniversalAvatarImage(
-                            imageUrl: me.avatarUrl,
-                            fallbackText: me.displayName,
-                            radius: 28,
+                    GestureDetector(
+                      onTap: controller.showAvatarOptionsSheet,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: <Widget>[
+                          Container(
+                            padding: const EdgeInsets.all(2.2),
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: AppColors.cyanButtonGradient,
+                            ),
+                            child: ClipOval(
+                              child: SizedBox(
+                                width: 56,
+                                height: 56,
+                                child: buildUniversalAvatarImage(
+                                  imageUrl: me.avatarUrl,
+                                  fallbackText: me.displayName,
+                                  radius: 28,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                          PositionedDirectional(
+                            bottom: -1,
+                            end: -1,
+                            child: Container(
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: AppColors.aqua,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.camera_alt_rounded,
+                                color: Colors.white,
+                                size: 11,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 14),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -60,6 +61,11 @@ class ChatController extends GetxController {
   final RxString searchQuery = ''.obs;
   final RxBool showStarredOnly = false.obs;
 
+  // Mention (@) suggestions state
+  final RxBool showMentionOverlay = false.obs;
+  final RxList<ProfileModel> mentionCandidates = <ProfileModel>[].obs;
+  int _mentionStartIndex = -1;
+
   // ---------------------------------------------------------------------------
   // Realtime Messages Stream, Offline Outbox & Typing Broadcast
   // ---------------------------------------------------------------------------
@@ -82,6 +88,7 @@ class ChatController extends GetxController {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final RxBool isRecording = false.obs;
   final RxBool isUploadingAudio = false.obs;
+  final RxBool isUpdatingGroupAvatar = false.obs;
   final RxInt recordingSeconds = 0.obs;
   Timer? _recordingTimer;
   String? _currentRecordingPath;
@@ -561,6 +568,105 @@ class ChatController extends GetxController {
   void onTextChanged(String value) {
     typedText.value = value;
     _broadcastTyping(value.trim().isNotEmpty);
+    _checkForMention(value);
+  }
+
+  void _checkForMention(String text) {
+    final TextSelection selection = messageInputController.selection;
+    final int cursorPos =
+        selection.baseOffset >= 0 ? selection.baseOffset : text.length;
+    if (cursorPos == 0) {
+      showMentionOverlay.value = false;
+      _mentionStartIndex = -1;
+      return;
+    }
+
+    final String textBeforeCursor = text.substring(0, cursorPos);
+    final int lastAt = textBeforeCursor.lastIndexOf('@');
+    if (lastAt == -1) {
+      showMentionOverlay.value = false;
+      _mentionStartIndex = -1;
+      return;
+    }
+
+    // Ensure '@' is at start or preceded by whitespace
+    if (lastAt > 0 &&
+        !RegExp(r'\s').hasMatch(textBeforeCursor[lastAt - 1])) {
+      showMentionOverlay.value = false;
+      _mentionStartIndex = -1;
+      return;
+    }
+
+    final String query = textBeforeCursor.substring(lastAt + 1).toLowerCase();
+    if (query.contains(' ')) {
+      showMentionOverlay.value = false;
+      _mentionStartIndex = -1;
+      return;
+    }
+
+    _mentionStartIndex = lastAt;
+    _filterMentionCandidates(query);
+  }
+
+  void _filterMentionCandidates(String query) {
+    final List<ProfileModel> sourceList = <ProfileModel>[];
+
+    if (isGroupChat) {
+      sourceList.addAll(groupMembersList);
+    } else if (otherUser.value != null) {
+      sourceList.add(otherUser.value!);
+    }
+
+    if (Get.isRegistered<HomeController>()) {
+      final HomeController home = Get.find<HomeController>();
+      for (final conv in home.conversations) {
+        if (!conv.isGroup && conv.otherUser != null) {
+          if (!sourceList.any((p) => p.id == conv.otherUser!.id)) {
+            sourceList.add(conv.otherUser!);
+          }
+        }
+      }
+      for (final u in home.statusUsers) {
+        if (!sourceList.any((p) => p.id == u.id)) {
+          sourceList.add(u);
+        }
+      }
+    }
+
+    final String? myId = currentUserId;
+    final List<ProfileModel> filtered = sourceList.where((ProfileModel p) {
+      if (p.id == myId) return false;
+      if (query.isEmpty) return true;
+      return p.displayName.toLowerCase().contains(query) ||
+          p.username.toLowerCase().contains(query);
+    }).toList();
+
+    mentionCandidates.assignAll(filtered);
+    showMentionOverlay.value = filtered.isNotEmpty;
+  }
+
+  void insertMention(ProfileModel user) {
+    final String text = messageInputController.text;
+    final TextSelection selection = messageInputController.selection;
+    final int cursorPos =
+        selection.baseOffset >= 0 ? selection.baseOffset : text.length;
+
+    int atIndex = _mentionStartIndex;
+    if (atIndex == -1 || atIndex >= text.length) {
+      atIndex = text.lastIndexOf('@', cursorPos > 0 ? cursorPos - 1 : 0);
+    }
+    if (atIndex == -1) atIndex = cursorPos;
+
+    final String mentionText = '@${user.username} ';
+    final String newText = text.replaceRange(atIndex, cursorPos, mentionText);
+
+    messageInputController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: atIndex + mentionText.length),
+    );
+    typedText.value = newText;
+    showMentionOverlay.value = false;
+    _mentionStartIndex = -1;
   }
 
   void toggleEmojiBar() {
@@ -634,17 +740,6 @@ class ChatController extends GetxController {
         replySender: senderLabel,
         replyText: replyTarget.preview,
       );
-    } else if (isGroupChat && Get.isRegistered<HomeController>()) {
-      // In group chats, attach the sender's displayName so members see who sent it
-      final String myName =
-          Get.find<HomeController>().myProfile.value?.displayName ?? '';
-      if (myName.isNotEmpty) {
-        finalContent = MessageModel.encodeWithReply(
-          text: rawContent,
-          replySender: '👤 $myName',
-          replyText: 'رسالة جماعية',
-        );
-      }
     }
 
     messageInputController.clear();
@@ -652,6 +747,7 @@ class ChatController extends GetxController {
     replyingToMessage.value = null;
     showEmojiBar.value = false;
     showAttachmentBar.value = false;
+    showMentionOverlay.value = false;
     _broadcastTyping(false);
 
     if (Get.isRegistered<AppPreferencesService>()) {
@@ -708,23 +804,37 @@ class ChatController extends GetxController {
         await LocalChatCacheService.to.saveMessages(conversationId, messages);
       }
 
-      // 2) Update `last_message` in `conversations`
-      await supabase
-          .from(SupabaseConstants.conversationsTable)
-          .update(
-            ConversationModel.lastMessagePayload(
-              lastMessage: _buildConversationLastMessageValue(rawContent),
-              lastMessageType: SupabaseConstants.messageTypeText,
-              senderId: myId,
-            ),
-          )
-          .eq('id', conversationId);
-    } catch (_) {
-      // Offline or local-only group: Keep message in chat with pending clock icon
-      // and enqueue in LocalChatCacheService so it sends automatically when online!
-      if (Get.isRegistered<LocalChatCacheService>()) {
-        await LocalChatCacheService.to.enqueueOfflineMessage(optimisticMsg);
-        await LocalChatCacheService.to.saveMessages(conversationId, messages);
+      // 2) Update `last_message` in `conversations` safely in separate block
+      try {
+        await supabase
+            .from(SupabaseConstants.conversationsTable)
+            .update(
+              ConversationModel.lastMessagePayload(
+                lastMessage: _buildConversationLastMessageValue(rawContent),
+                lastMessageType: SupabaseConstants.messageTypeText,
+                senderId: myId,
+                groupMeta: groupMeta,
+              ),
+            )
+            .eq('id', conversationId);
+      } catch (_) {}
+    } catch (e) {
+      if (e is PostgrestException && e.code == '23503') {
+        final bool isAr = Get.isRegistered<AppPreferencesService>()
+            ? AppPreferencesService.to.isArabic
+            : true;
+        _showError(
+          isAr
+              ? 'المحادثة غير موجودة على الخادم'
+              : 'Conversation does not exist on server',
+        );
+      } else {
+        // Offline: Keep message in chat with pending clock icon
+        // and enqueue in LocalChatCacheService so it sends automatically when online!
+        if (Get.isRegistered<LocalChatCacheService>()) {
+          await LocalChatCacheService.to.enqueueOfflineMessage(optimisticMsg);
+          await LocalChatCacheService.to.saveMessages(conversationId, messages);
+        }
       }
     }
   }
@@ -760,18 +870,21 @@ class ChatController extends GetxController {
               .select()
               .single();
 
-          await supabase
-              .from(SupabaseConstants.conversationsTable)
-              .update(
-                ConversationModel.lastMessagePayload(
-                  lastMessage: _buildConversationLastMessageValue(
-                    pending.bodyText,
+          try {
+            await supabase
+                .from(SupabaseConstants.conversationsTable)
+                .update(
+                  ConversationModel.lastMessagePayload(
+                    lastMessage: _buildConversationLastMessageValue(
+                      pending.bodyText,
+                    ),
+                    lastMessageType: SupabaseConstants.messageTypeText,
+                    senderId: myId,
+                    groupMeta: groupMeta,
                   ),
-                  lastMessageType: SupabaseConstants.messageTypeText,
-                  senderId: myId,
-                ),
-              )
-              .eq('id', conversationId);
+                )
+                .eq('id', conversationId);
+          } catch (_) {}
 
           await LocalChatCacheService.to.removeOfflineMessage(pending.id);
           final MessageModel confirmed = MessageModel.fromJson(inserted);
@@ -821,18 +934,21 @@ class ChatController extends GetxController {
                 .select()
                 .single();
 
-            await supabase
-                .from(SupabaseConstants.conversationsTable)
-                .update(
-                  ConversationModel.lastMessagePayload(
-                    lastMessage: _buildConversationLastMessageValue(
-                      SupabaseConstants.voiceMessagePreview,
+            try {
+              await supabase
+                  .from(SupabaseConstants.conversationsTable)
+                  .update(
+                    ConversationModel.lastMessagePayload(
+                      lastMessage: _buildConversationLastMessageValue(
+                        SupabaseConstants.voiceMessagePreview,
+                      ),
+                      lastMessageType: SupabaseConstants.messageTypeAudio,
+                      senderId: myId,
+                      groupMeta: groupMeta,
                     ),
-                    lastMessageType: SupabaseConstants.messageTypeAudio,
-                    senderId: myId,
-                  ),
-                )
-                .eq('id', conversationId);
+                  )
+                  .eq('id', conversationId);
+            } catch (_) {}
 
             try {
               await audioFile.delete();
@@ -854,7 +970,11 @@ class ChatController extends GetxController {
           }
         }
         await LocalChatCacheService.to.saveMessages(conversationId, messages);
-      } catch (_) {
+      } catch (e) {
+        if (e is PostgrestException && e.code == '23503') {
+          await LocalChatCacheService.to.removeOfflineMessage(pending.id);
+          continue;
+        }
         // Still offline; stop and retry on next cycle
         break;
       }
@@ -1327,19 +1447,22 @@ class ChatController extends GetxController {
         await LocalChatCacheService.to.saveMessages(conversationId, messages);
       }
 
-      // 4) Update `conversations.last_message` to "🎵 رسالة صوتية"
-      await supabase
-          .from(SupabaseConstants.conversationsTable)
-          .update(
-            ConversationModel.lastMessagePayload(
-              lastMessage: _buildConversationLastMessageValue(
-                SupabaseConstants.voiceMessagePreview,
+      // 4) Update `conversations.last_message` to "🎵 رسالة صوتية" safely in separate block
+      try {
+        await supabase
+            .from(SupabaseConstants.conversationsTable)
+            .update(
+              ConversationModel.lastMessagePayload(
+                lastMessage: _buildConversationLastMessageValue(
+                  SupabaseConstants.voiceMessagePreview,
+                ),
+                lastMessageType: SupabaseConstants.messageTypeAudio,
+                senderId: myId,
+                groupMeta: groupMeta,
               ),
-              lastMessageType: SupabaseConstants.messageTypeAudio,
-              senderId: myId,
-            ),
-          )
-          .eq('id', conversationId);
+            )
+            .eq('id', conversationId);
+      } catch (_) {}
 
       try {
         if (await localFile.exists()) {
@@ -1356,6 +1479,84 @@ class ChatController extends GetxController {
       }
     } finally {
       isUploadingAudio.value = false;
+    }
+  }
+
+  /// Updates group avatar image from camera or gallery
+  Future<void> updateGroupAvatarFromPicker([
+    ImageSource source = ImageSource.gallery,
+  ]) async {
+    if (!isCurrentUserGroupAdmin) return;
+    isUpdatingGroupAvatar.value = true;
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? picked = await picker.pickImage(
+        source: source,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 80,
+      );
+      if (picked == null) return;
+      final Uint8List bytes = await picked.readAsBytes();
+      if (bytes.isEmpty) return;
+
+      String? remoteUrl;
+      try {
+        final String path =
+            'groups/${conversationId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+        await supabase.storage
+            .from(SupabaseConstants.avatarsBucket)
+            .uploadBinary(
+              path,
+              bytes,
+              fileOptions: const FileOptions(
+                contentType: 'image/jpeg',
+                upsert: true,
+              ),
+            );
+        remoteUrl = supabase.storage
+            .from(SupabaseConstants.avatarsBucket)
+            .getPublicUrl(path);
+      } catch (_) {}
+
+      final String finalAvatarUrl =
+          remoteUrl ?? 'data:image/jpeg;base64,${base64Encode(bytes)}';
+
+      if (groupMeta != null) {
+        final GroupChatMeta updated =
+            groupMeta!.copyWith(avatarUrl: finalAvatarUrl);
+        conversation.value = conversation.value?.copyWith(
+          groupMeta: updated,
+        );
+        if (Get.isRegistered<HomeController>()) {
+          await Get.find<HomeController>()
+              .updateGroupConversationMeta(conversation.value!, updated);
+        }
+      }
+    } catch (_) {
+    } finally {
+      isUpdatingGroupAvatar.value = false;
+    }
+  }
+
+  /// Removes group avatar and restores default icon
+  Future<void> removeGroupAvatar() async {
+    if (!isCurrentUserGroupAdmin) return;
+    isUpdatingGroupAvatar.value = true;
+    try {
+      if (groupMeta != null) {
+        final GroupChatMeta updated = groupMeta!.copyWith(avatarUrl: '');
+        conversation.value = conversation.value?.copyWith(
+          groupMeta: updated,
+        );
+        if (Get.isRegistered<HomeController>()) {
+          await Get.find<HomeController>()
+              .updateGroupConversationMeta(conversation.value!, updated);
+        }
+      }
+    } catch (_) {
+    } finally {
+      isUpdatingGroupAvatar.value = false;
     }
   }
 

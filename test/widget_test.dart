@@ -255,4 +255,76 @@ void main() {
       focusNode.dispose();
     });
   });
+
+  group('Group Conversation & Payload', () {
+    test('serializes groupInsertPayload correctly with members and avatar', () {
+      final GroupChatMeta meta = GroupChatMeta(
+        name: 'مجموعة المطورين',
+        description: 'نقاشات تقنية',
+        avatarUrl: 'https://example.com/avatar.jpg',
+        ownerId: 'u1',
+        adminIds: <String>['u1'],
+        memberIds: <String>['u1', 'u2', 'u3'],
+        onlyAdminsCanSend: true,
+        onlyAdminsCanEditInfo: true,
+        inviteCode: 'GRP-123456',
+      );
+
+      final Map<String, dynamic> payload = ConversationModel.groupInsertPayload(
+        creatorId: 'u1',
+        secondUserId: 'u2',
+        meta: meta,
+        visibleLastMessage: 'تم إنشاء المجموعة',
+      );
+
+      expect(payload['is_group'], isTrue);
+      expect(payload['group_name'], 'مجموعة المطورين');
+      expect(payload['group_description'], 'نقاشات تقنية');
+      expect(payload['group_avatar_url'], 'https://example.com/avatar.jpg');
+      expect(payload['group_owner_id'], 'u1');
+      expect(payload['group_admins'], <String>['u1']);
+      expect(payload['group_members'], <String>['u1', 'u2', 'u3']);
+      expect(payload['only_admins_can_send'], isTrue);
+      expect(payload['only_admins_can_edit'], isTrue);
+      expect(payload['group_invite_code'], 'GRP-123456');
+    });
+  });
+
+  group('StatusSegmentItem & Color/Image', () {
+    test('parses multi-segment json status story', () {
+      final String json = '''
+      [
+        {"id":"s1","text":"أهلاً بكم في حالتي الأولى","color":"#10B981","created_at":"${DateTime.now().toIso8601String()}"},
+        {"id":"s2","text":"صورة جديدة","color":"#3B82F6","img":"https://example.com/status.jpg","created_at":"${DateTime.now().toIso8601String()}"}
+      ]
+      ''';
+
+      final ProfileModel user = ProfileModel(
+        id: 'u1',
+        username: 'ali',
+        displayName: 'علي',
+        statusText: json,
+      );
+
+      expect(user.hasActiveStatus, isTrue);
+      expect(user.statusSegments.length, 2);
+      expect(user.statusSegments.first.text, 'أهلاً بكم في حالتي الأولى');
+      expect(user.statusSegments.first.colorHex, '#10B981');
+      expect(user.statusSegments.last.hasImage, isTrue);
+      expect(user.statusSegments.last.imageBase64, 'https://example.com/status.jpg');
+    });
+  });
+
+  group('Mentions Detection', () {
+    test('matches mention regex for user tags in chat', () {
+      final RegExp mentionRegex = RegExp(r'(@[a-zA-Z0-9_]{3,20})');
+      const String text = 'مرحباً @hadi_99 و @ali_developer كيف حالكم اليوم؟';
+      final List<String> matches = mentionRegex
+          .allMatches(text)
+          .map((Match m) => m.group(0)!)
+          .toList();
+
+      expect(matches, <String>['@hadi_99', '@ali_developer']);
+    });
+  });
 }

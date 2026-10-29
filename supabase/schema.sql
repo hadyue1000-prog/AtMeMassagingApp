@@ -115,8 +115,13 @@ alter table public.conversations add column if not exists only_admins_can_send b
 alter table public.conversations add column if not exists only_admins_can_edit boolean not null default true;
 alter table public.conversations add column if not exists group_invite_code text;
 
+-- Allow user2_id to be nullable for group conversations
+alter table public.conversations alter column user2_id drop not null;
+
 -- Drop strict 1-on-1 distinct check so group rows can also use owner id if needed
 alter table public.conversations drop constraint if exists conversations_distinct_users;
+alter table public.conversations drop constraint if exists conversations_unique_users;
+alter table public.conversations drop constraint if exists conversations_user1_id_user2_id_key;
 drop index if exists conversations_unique_pair_idx;
 create unique index if not exists conversations_unique_pair_idx
   on public.conversations (least(user1_id, user2_id), greatest(user1_id, user2_id))
@@ -182,8 +187,14 @@ as $$
     where c.id = conv_id
       and (
         c.user1_id = auth.uid()
-        or c.user2_id = auth.uid()
-        or (c.is_group = true and auth.uid()::text = any(c.group_members))
+        or (c.user2_id is not null and c.user2_id = auth.uid())
+        or (
+          c.is_group = true
+          and (
+            c.group_owner_id = auth.uid()
+            or (c.group_members is not null and auth.uid()::text = any(c.group_members))
+          )
+        )
       )
   );
 $$;
@@ -203,7 +214,7 @@ language plpgsql
 as $$
 begin
   if new.user1_id   <> old.user1_id
-  or new.user2_id   <> old.user2_id
+  or (new.user2_id is distinct from old.user2_id)
   or new.created_at <> old.created_at then
     raise exception 'conversation participants are immutable';
   end if;
@@ -278,8 +289,14 @@ create policy "conversations_select_participant"
   to authenticated
   using (
     auth.uid() = user1_id
-    or auth.uid() = user2_id
-    or (is_group = true and auth.uid()::text = any(group_members))
+    or (user2_id is not null and auth.uid() = user2_id)
+    or (
+      is_group = true
+      and (
+        group_owner_id = auth.uid()
+        or (group_members is not null and auth.uid()::text = any(group_members))
+      )
+    )
   );
 
 drop policy if exists "conversations_insert_participant" on public.conversations;
@@ -288,8 +305,14 @@ create policy "conversations_insert_participant"
   to authenticated
   with check (
     auth.uid() = user1_id
-    or auth.uid() = user2_id
-    or (is_group = true and auth.uid()::text = any(group_members))
+    or (user2_id is not null and auth.uid() = user2_id)
+    or (
+      is_group = true
+      and (
+        group_owner_id = auth.uid()
+        or (group_members is not null and auth.uid()::text = any(group_members))
+      )
+    )
   );
 
 drop policy if exists "conversations_update_participant" on public.conversations;
@@ -298,13 +321,25 @@ create policy "conversations_update_participant"
   to authenticated
   using (
     auth.uid() = user1_id
-    or auth.uid() = user2_id
-    or (is_group = true and auth.uid()::text = any(group_members))
+    or (user2_id is not null and auth.uid() = user2_id)
+    or (
+      is_group = true
+      and (
+        group_owner_id = auth.uid()
+        or (group_members is not null and auth.uid()::text = any(group_members))
+      )
+    )
   )
   with check (
     auth.uid() = user1_id
-    or auth.uid() = user2_id
-    or (is_group = true and auth.uid()::text = any(group_members))
+    or (user2_id is not null and auth.uid() = user2_id)
+    or (
+      is_group = true
+      and (
+        group_owner_id = auth.uid()
+        or (group_members is not null and auth.uid()::text = any(group_members))
+      )
+    )
   );
 
 drop policy if exists "conversations_delete_participant" on public.conversations;
@@ -313,7 +348,7 @@ create policy "conversations_delete_participant"
   to authenticated
   using (
     auth.uid() = user1_id
-    or auth.uid() = user2_id
+    or (user2_id is not null and auth.uid() = user2_id)
     or (is_group = true and auth.uid() = group_owner_id)
   );
 

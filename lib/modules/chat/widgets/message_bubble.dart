@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 
+import '../../../core/constants/supabase_constants.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/other_user_profile_sheet.dart';
 import '../../../data/models/message_model.dart';
+import '../../../data/models/profile_model.dart';
+import '../../home/home_controller.dart';
+import '../chat_controller.dart';
 import 'voice_message_player.dart';
 
 /// Glassmorphism Chat Bubble matching the reference image:
@@ -180,14 +186,11 @@ class MessageBubble extends StatelessWidget {
                       if (message.isAudio)
                         VoiceMessagePlayer(message: message, isMine: isMine)
                       else
-                        Text(
-                          message.bodyText,
-                          style: TextStyle(
-                            color: textColor,
-                            fontSize: 15.5,
-                            height: 1.4,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        _buildMentionRichText(
+                          text: message.bodyText,
+                          defaultTextColor: textColor,
+                          isMine: isMine,
+                          context: context,
                         ),
 
                       const SizedBox(height: 4),
@@ -266,6 +269,161 @@ class MessageBubble extends StatelessWidget {
       ),
       child: bubble,
     );
+  }
+
+  Widget _buildMentionRichText({
+    required String text,
+    required Color defaultTextColor,
+    required bool isMine,
+    required BuildContext context,
+  }) {
+    final RegExp mentionRegex = RegExp(r'(@[a-zA-Z0-9_]{3,20})');
+    if (!mentionRegex.hasMatch(text)) {
+      return Text(
+        text,
+        style: TextStyle(
+          color: defaultTextColor,
+          fontSize: 15.5,
+          height: 1.4,
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
+
+    final List<InlineSpan> spans = <InlineSpan>[];
+    int lastEnd = 0;
+
+    for (final Match match in mentionRegex.allMatches(text)) {
+      if (match.start > lastEnd) {
+        spans.add(
+          TextSpan(
+            text: text.substring(lastEnd, match.start),
+            style: TextStyle(
+              color: defaultTextColor,
+              fontSize: 15.5,
+              height: 1.4,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+      }
+
+      final String mentionToken = match.group(0)!;
+      final String cleanUsername = mentionToken.substring(1);
+
+      spans.add(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: GestureDetector(
+            onTap: () => _handleMentionTap(cleanUsername),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              margin: const EdgeInsets.symmetric(horizontal: 1.5),
+              decoration: BoxDecoration(
+                color: isMine
+                    ? AppColors.deepNavy.withValues(alpha: 0.14)
+                    : AppColors.electricCyan.withValues(alpha: 0.22),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: isMine
+                      ? AppColors.royalBlue.withValues(alpha: 0.35)
+                      : AppColors.aqua.withValues(alpha: 0.55),
+                  width: 0.8,
+                ),
+              ),
+              child: Text(
+                mentionToken,
+                style: TextStyle(
+                  color: isMine ? AppColors.royalBlue : AppColors.aqua,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14.5,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      lastEnd = match.end;
+    }
+
+    if (lastEnd < text.length) {
+      spans.add(
+        TextSpan(
+          text: text.substring(lastEnd),
+          style: TextStyle(
+            color: defaultTextColor,
+            fontSize: 15.5,
+            height: 1.4,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
+    return Text.rich(
+      TextSpan(children: spans),
+    );
+  }
+
+  void _handleMentionTap(String username) async {
+    ProfileModel? found;
+    if (Get.isRegistered<ChatController>()) {
+      final ChatController chat = Get.find<ChatController>();
+      for (final ProfileModel m in chat.groupMembersList) {
+        if (m.username.toLowerCase() == username.toLowerCase()) {
+          found = m;
+          break;
+        }
+      }
+      if (found == null &&
+          chat.otherUser.value?.username.toLowerCase() ==
+              username.toLowerCase()) {
+        found = chat.otherUser.value;
+      }
+    }
+
+    if (found == null && Get.isRegistered<HomeController>()) {
+      final HomeController home = Get.find<HomeController>();
+      for (final c in home.conversations) {
+        if (c.otherUser?.username.toLowerCase() == username.toLowerCase()) {
+          found = c.otherUser;
+          break;
+        }
+      }
+      if (found == null) {
+        for (final s in home.statusUsers) {
+          if (s.username.toLowerCase() == username.toLowerCase()) {
+            found = s;
+            break;
+          }
+        }
+      }
+    }
+
+    if (found == null) {
+      try {
+        final Map<String, dynamic>? row = await supabase
+            .from(SupabaseConstants.profilesTable)
+            .select(SupabaseConstants.publicProfileColumns)
+            .eq('username', username.toLowerCase())
+            .maybeSingle();
+        if (row != null) {
+          found = ProfileModel.fromJson(row);
+        }
+      } catch (_) {}
+    }
+
+    if (found != null) {
+      showOtherUserProfileSheet(
+        user: found,
+        onMessageTap: () {
+          if (Get.isRegistered<HomeController>()) {
+            Get.find<HomeController>().openOrStartChatWithUser(found!);
+          }
+        },
+      );
+    }
   }
 }
 

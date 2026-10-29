@@ -43,6 +43,7 @@ class HomeController extends GetxController with WidgetsBindingObserver {
   final RxBool isSavingProfileEdit = false.obs;
   final RxBool isPublishingStatus = false.obs;
   final RxBool isCreatingGroup = false.obs;
+  final RxBool isUploadingAvatar = false.obs;
   final RxString errorMessage = ''.obs;
 
   // ---------------------------------------------------------------------------
@@ -61,13 +62,35 @@ class HomeController extends GetxController with WidgetsBindingObserver {
 
   static const List<String> statusColorPalette = <String>[
     '#123D91', // Royal Blue
-    '#0EA5E9', // Calming Sky Cyan
-    '#8B5CF6', // Soft Violet
-    '#DB2777', // Soft Rose Pink
-    '#EA580C', // Warm Amber Orange
+    '#0EA5E9', // Sky Cyan
     '#0D9488', // Deep Calming Teal
+    '#10B981', // Emerald Green
+    '#8B5CF6', // Soft Violet
+    '#6366F1', // Indigo Purple
+    '#DB2777', // Soft Rose Pink
+    '#EF4444', // Crimson Red
+    '#EA580C', // Warm Amber Orange
+    '#F59E0B', // Golden Amber
     '#0F172A', // Eye-friendly Slate Navy
   ];
+
+  int _statusColorIndex = 0;
+
+  /// Picks a new background color automatically from the palette behind the scenes
+  /// without displaying any color picker box to the user.
+  void pickNextStatusColorInBackground() {
+    _statusColorIndex = (_statusColorIndex + 1) % statusColorPalette.length;
+    selectedStatusColor.value = statusColorPalette[_statusColorIndex];
+  }
+
+  void cycleStatusColor() {
+    final int idx = statusColorPalette.indexOf(selectedStatusColor.value);
+    if (idx == -1 || idx == statusColorPalette.length - 1) {
+      selectedStatusColor.value = statusColorPalette.first;
+    } else {
+      selectedStatusColor.value = statusColorPalette[idx + 1];
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Tab 2: Dedicated Profile Editor Controllers
@@ -152,14 +175,12 @@ class HomeController extends GetxController with WidgetsBindingObserver {
 
     for (final ConversationModel c in conversations) {
       final ProfileModel? u = c.otherUser;
-      if (u != null && u.isProfileDiscoverable && u.hasActiveStatus) {
+      if (u != null && u.id != currentUserId && u.hasActiveStatus) {
         map[u.id] = u;
       }
     }
     for (final ProfileModel u in statusUsers) {
-      if (u.id != currentUserId &&
-          u.isProfileDiscoverable &&
-          u.hasActiveStatus) {
+      if (u.id != currentUserId && u.hasActiveStatus) {
         map[u.id] = u;
       }
     }
@@ -265,6 +286,13 @@ class HomeController extends GetxController with WidgetsBindingObserver {
   }
 
   Future<void> _initializeHome() async {
+    final String? uid = currentUserId;
+    if (uid == null) {
+      debugPrint('No active Supabase session in HomeController. Redirecting to login.');
+      await signOut();
+      return;
+    }
+
     // Load local offline cache immediately so chats appear with zero wait
     // and work even when completely offline.
     if (Get.isRegistered<LocalChatCacheService>()) {
@@ -409,7 +437,11 @@ class HomeController extends GetxController with WidgetsBindingObserver {
           cachedMsgs.removeWhere((MessageModel m) => m.id == pending.id);
           await cache.saveMessages(pending.conversationId, cachedMsgs);
           isOfflineMode.value = false;
-        } catch (_) {
+        } catch (e) {
+          if (e is PostgrestException && e.code == '23503') {
+            await cache.removeOfflineMessage(pending.id);
+            continue;
+          }
           // Still offline or temporary error -> keep in outbox for next retry
           break;
         }
@@ -468,14 +500,35 @@ class HomeController extends GetxController with WidgetsBindingObserver {
     if (uid == null) return;
 
     try {
-      final List<dynamic> rows = await supabase
-          .from(SupabaseConstants.profilesTable)
-          .select(SupabaseConstants.publicProfileColumns)
-          .neq('id', uid)
-          .eq('is_profile_discoverable', true)
-          .neq('status_text', '')
-          .order('last_seen', ascending: false)
-          .limit(30);
+      List<dynamic> rows;
+      try {
+        // 1) Primary: Query users who have active status stories
+        rows = await supabase
+            .from(SupabaseConstants.profilesTable)
+            .select(SupabaseConstants.publicProfileColumns)
+            .neq('id', uid)
+            .neq('status_text', '')
+            .not('status_text', 'is', null)
+            .order('status_created_at', ascending: false)
+            .limit(100);
+      } catch (_) {
+        try {
+          // 2) Secondary fallback: Query recent profiles with public columns
+          rows = await supabase
+              .from(SupabaseConstants.profilesTable)
+              .select(SupabaseConstants.publicProfileColumns)
+              .neq('id', uid)
+              .order('last_seen', ascending: false)
+              .limit(60);
+        } catch (_) {
+          // 3) Safe fallback: Core profile columns
+          rows = await supabase
+              .from(SupabaseConstants.profilesTable)
+              .select()
+              .neq('id', uid)
+              .limit(60);
+        }
+      }
 
       final List<ProfileModel> parsed = rows
           .whereType<Map<String, dynamic>>()
@@ -485,8 +538,7 @@ class HomeController extends GetxController with WidgetsBindingObserver {
 
       statusUsers.assignAll(parsed);
     } catch (_) {
-      // If `status_text` column isn't migrated yet, statuses from cached
-      // conversations still work seamlessly.
+      // Non-fatal
     }
   }
 
@@ -528,6 +580,27 @@ class HomeController extends GetxController with WidgetsBindingObserver {
     isPublishingStatus.value = true;
 
     try {
+      String? uploadedImageUrl;
+      if (imgBytes != null && imgBytes.isNotEmpty && uid != null) {
+        try {
+          final String path =
+              '$uid/status_${now.millisecondsSinceEpoch}.jpg';
+          await supabase.storage
+              .from(SupabaseConstants.avatarsBucket)
+              .uploadBinary(
+                path,
+                imgBytes,
+                fileOptions: const FileOptions(
+                  contentType: 'image/jpeg',
+                  upsert: true,
+                ),
+              );
+          uploadedImageUrl = supabase.storage
+              .from(SupabaseConstants.avatarsBucket)
+              .getPublicUrl(path);
+        } catch (_) {}
+      }
+
       final List<StatusSegmentItem> currentSegments =
           List<StatusSegmentItem>.from(
         myProfile.value?.statusSegments ?? const <StatusSegmentItem>[],
@@ -538,9 +611,10 @@ class HomeController extends GetxController with WidgetsBindingObserver {
         text: cleanText,
         colorHex: colorHex,
         createdAt: now,
-        imageBase64: (imgBytes != null && imgBytes.isNotEmpty)
-            ? base64Encode(imgBytes)
-            : null,
+        imageBase64: uploadedImageUrl ??
+            (imgBytes != null && imgBytes.isNotEmpty
+                ? base64Encode(imgBytes)
+                : null),
       );
 
       currentSegments.add(newSegment);
@@ -554,6 +628,7 @@ class HomeController extends GetxController with WidgetsBindingObserver {
       );
 
       if (uid != null) {
+        bool savedRemote = false;
         try {
           await supabase.from(SupabaseConstants.profilesTable).update(
             <String, dynamic>{
@@ -562,8 +637,27 @@ class HomeController extends GetxController with WidgetsBindingObserver {
               'status_created_at': now.toUtc().toIso8601String(),
             },
           ).eq('id', uid);
+          savedRemote = true;
         } on PostgrestException {
-          // Fallback if status columns aren't created on remote DB yet
+          try {
+            await supabase.from(SupabaseConstants.profilesTable).update(
+              <String, dynamic>{
+                'status_text': serializedSegments,
+                'status_color': colorHex,
+              },
+            ).eq('id', uid);
+            savedRemote = true;
+          } catch (_) {}
+        } catch (_) {}
+
+        if (!savedRemote) {
+          _showSnack(
+            title: prefs.isArabic ? 'تنبيه الحالات' : 'Status Notice',
+            message: prefs.isArabic
+                ? 'تم حفظ الحالة محلياً فقط. يرجى تشغيل ملف SQL في Supabase لمشاركتها مع المستخدمين الآخرين.'
+                : 'Status saved locally only. Please run the SQL migration in Supabase to share with others.',
+            isError: true,
+          );
         }
       }
 
@@ -581,11 +675,13 @@ class HomeController extends GetxController with WidgetsBindingObserver {
 
       statusInputController.clear();
       selectedStatusImageBytes.value = null;
+      pickNextStatusColorInBackground();
       _showSnack(
         title: 'statuses_title'.tr,
         message: 'status_published'.tr,
         isError: false,
       );
+      loadCommunityStatuses();
     } finally {
       isPublishingStatus.value = false;
     }
@@ -976,14 +1072,15 @@ class HomeController extends GetxController with WidgetsBindingObserver {
       final ImagePicker picker = ImagePicker();
       final XFile? picked = await picker.pickImage(
         source: source,
-        maxWidth: 512,
-        maxHeight: 512,
-        imageQuality: 82,
+        maxWidth: 400,
+        maxHeight: 400,
+        imageQuality: 75,
       );
       if (picked == null) return;
       final Uint8List bytes = await picked.readAsBytes();
       if (bytes.isEmpty) return;
 
+      isUploadingAvatar.value = true;
       final String? uid = currentUserId;
       String? remoteUrl;
 
@@ -1039,7 +1136,17 @@ class HomeController extends GetxController with WidgetsBindingObserver {
             : 'Avatar updated and visible everywhere ✨',
         isError: false,
       );
-    } catch (_) {}
+    } catch (_) {
+      _showSnack(
+        title: 'retry'.tr,
+        message: prefs.isArabic
+            ? 'تعذّر تحديث الصورة، حاول مرة أخرى'
+            : 'Failed to update avatar, please try again',
+        isError: true,
+      );
+    } finally {
+      isUploadingAvatar.value = false;
+    }
   }
 
   /// Picks and updates the user's profile cover / background image.
@@ -1261,6 +1368,7 @@ class HomeController extends GetxController with WidgetsBindingObserver {
     try {
       List<dynamic> rows;
       try {
+        // 1) Primary: rely on Supabase RLS to return all 1-on-1 and Group chats
         rows = await supabase
             .from(SupabaseConstants.conversationsTable)
             .select(
@@ -1268,18 +1376,27 @@ class HomeController extends GetxController with WidgetsBindingObserver {
               'user1:${SupabaseConstants.profilesTable}!conversations_user1_id_fkey(${SupabaseConstants.publicProfileColumns}), '
               'user2:${SupabaseConstants.profilesTable}!conversations_user2_id_fkey(${SupabaseConstants.publicProfileColumns})',
             )
-            .or('user1_id.eq.$uid,user2_id.eq.$uid')
             .order('last_message_at', ascending: false);
-      } on PostgrestException {
-        rows = await supabase
-            .from(SupabaseConstants.conversationsTable)
-            .select(
-              '*, '
-              'user1:${SupabaseConstants.profilesTable}!conversations_user1_id_fkey(${SupabaseConstants.fallbackPublicProfileColumns}), '
-              'user2:${SupabaseConstants.profilesTable}!conversations_user2_id_fkey(${SupabaseConstants.fallbackPublicProfileColumns})',
-            )
-            .or('user1_id.eq.$uid,user2_id.eq.$uid')
-            .order('last_message_at', ascending: false);
+      } catch (_) {
+        try {
+          rows = await supabase
+              .from(SupabaseConstants.conversationsTable)
+              .select(
+                '*, '
+                'user1:${SupabaseConstants.profilesTable}!conversations_user1_id_fkey(${SupabaseConstants.fallbackPublicProfileColumns}), '
+                'user2:${SupabaseConstants.profilesTable}!conversations_user2_id_fkey(${SupabaseConstants.fallbackPublicProfileColumns})',
+              )
+              .order('last_message_at', ascending: false);
+        } catch (_) {
+          try {
+            rows = await supabase
+                .from(SupabaseConstants.conversationsTable)
+                .select()
+                .order('last_message_at', ascending: false);
+          } catch (_) {
+            rows = <dynamic>[];
+          }
+        }
       }
 
       isOfflineMode.value = false;
@@ -1290,6 +1407,7 @@ class HomeController extends GetxController with WidgetsBindingObserver {
             (Map<String, dynamic> row) =>
                 ConversationModel.fromJson(row, currentUserId: uid),
           )
+          .where((ConversationModel conv) => conv.includes(uid))
           .toList();
 
       if (parsed.isEmpty) {
@@ -1469,6 +1587,10 @@ class HomeController extends GetxController with WidgetsBindingObserver {
                     myProfile.value!.statusText,
                 statusColor: (newRow['status_color'] as String?) ??
                     myProfile.value!.statusColor,
+                statusCreatedAt: newRow['status_created_at'] != null
+                    ? DateTime.tryParse(newRow['status_created_at'].toString())
+                        ?.toLocal()
+                    : myProfile.value!.statusCreatedAt,
                 isOnline:
                     (newRow['is_online'] as bool?) ?? myProfile.value!.isOnline,
                 isProfileDiscoverable:
@@ -1502,6 +1624,11 @@ class HomeController extends GetxController with WidgetsBindingObserver {
                         existingOther.statusText,
                     statusColor: (newRow['status_color'] as String?) ??
                         existingOther.statusColor,
+                    statusCreatedAt: newRow['status_created_at'] != null
+                        ? DateTime.tryParse(
+                            newRow['status_created_at'].toString(),
+                          )?.toLocal()
+                        : existingOther.statusCreatedAt,
                     isOnline:
                         (newRow['is_online'] as bool?) ?? existingOther.isOnline,
                     isProfileDiscoverable:
@@ -1515,6 +1642,13 @@ class HomeController extends GetxController with WidgetsBindingObserver {
                 );
               }
             }
+
+            if (newRow.containsKey('status_text') ||
+                newRow.containsKey('status_color') ||
+                newRow.containsKey('avatar_url') ||
+                newRow.containsKey('display_name')) {
+              _scheduleSilentRefresh();
+            }
           },
         )
         .subscribe();
@@ -1522,8 +1656,9 @@ class HomeController extends GetxController with WidgetsBindingObserver {
 
   void _scheduleSilentRefresh() {
     _refreshDebounce?.cancel();
-    _refreshDebounce = Timer(const Duration(milliseconds: 280), () {
+    _refreshDebounce = Timer(const Duration(milliseconds: 320), () {
       loadConversations(silent: true);
+      loadCommunityStatuses();
     });
   }
 
@@ -1564,7 +1699,7 @@ class HomeController extends GetxController with WidgetsBindingObserver {
     String? initialMessage,
   }) async {
     final int existingIdx = conversations.indexWhere(
-      (ConversationModel c) => c.otherUser?.id == otherUser.id,
+      (ConversationModel c) => !c.isGroup && c.otherUser?.id == otherUser.id,
     );
     if (existingIdx != -1) {
       await openChat(
@@ -1578,21 +1713,39 @@ class HomeController extends GetxController with WidgetsBindingObserver {
     if (myId == null) return;
 
     try {
-      final Map<String, dynamic> inserted = await supabase
+      final Map<String, dynamic>? existingRow = await supabase
           .from(SupabaseConstants.conversationsTable)
-          .insert(
-            ConversationModel.insertPayload(
-              currentUserId: myId,
-              otherUserId: otherUser.id,
-            ),
-          )
           .select()
-          .single();
+          .or(
+            'and(user1_id.eq.$myId,user2_id.eq.${otherUser.id}),'
+            'and(user1_id.eq.${otherUser.id},user2_id.eq.$myId)',
+          )
+          .limit(1)
+          .maybeSingle();
 
-      final ConversationModel conv = ConversationModel.fromJson(
-        inserted,
-        currentUserId: myId,
-      ).copyWith(otherUser: otherUser);
+      ConversationModel conv;
+      if (existingRow != null) {
+        conv = ConversationModel.fromJson(
+          existingRow,
+          currentUserId: myId,
+        ).copyWith(otherUser: otherUser);
+      } else {
+        final Map<String, dynamic> inserted = await supabase
+            .from(SupabaseConstants.conversationsTable)
+            .insert(
+              ConversationModel.insertPayload(
+                currentUserId: myId,
+                otherUserId: otherUser.id,
+              ),
+            )
+            .select()
+            .single();
+
+        conv = ConversationModel.fromJson(
+          inserted,
+          currentUserId: myId,
+        ).copyWith(otherUser: otherUser);
+      }
 
       await openChat(conv, initialMessage: initialMessage);
     } catch (_) {
@@ -1607,13 +1760,14 @@ class HomeController extends GetxController with WidgetsBindingObserver {
 
   /// Creates a new Group Conversation with `currentUserId` as the Group Owner & Admin,
   /// customizable permissions (`onlyAdminsCanSend`, `onlyAdminsCanEditInfo`),
-  /// and initial selected members.
+  /// optional group avatar image, and initial selected members.
   Future<void> createGroupConversation({
     required String groupName,
     required String groupDescription,
     required List<ProfileModel> initialMembers,
     required bool onlyAdminsCanSend,
     required bool onlyAdminsCanEditInfo,
+    String? groupAvatarUrl,
   }) async {
     if (isCreatingGroup.value) return;
     final String cleanName = groupName.trim();
@@ -1644,6 +1798,7 @@ class HomeController extends GetxController with WidgetsBindingObserver {
       final GroupChatMeta meta = GroupChatMeta(
         name: cleanName,
         description: groupDescription.trim(),
+        avatarUrl: groupAvatarUrl,
         ownerId: myId,
         adminIds: <String>[myId],
         memberIds: memberIds,
@@ -1655,10 +1810,6 @@ class HomeController extends GetxController with WidgetsBindingObserver {
       final String welcomeMsg = prefs.isArabic
           ? 'تم إنشاء المجموعة "$cleanName" 🎉'
           : 'Group "$cleanName" created 🎉';
-      final String encodedLastMsg = ConversationModel.encodeGroupLastMessage(
-        meta: meta,
-        visibleLastMessage: welcomeMsg,
-      );
 
       // Secondary user id for DB compatibility if `user2_id` is required
       final String secondUserId = initialMembers.isNotEmpty
@@ -1668,16 +1819,17 @@ class HomeController extends GetxController with WidgetsBindingObserver {
       ConversationModel? createdConv;
 
       try {
+        final Map<String, dynamic> insertPayload =
+            ConversationModel.groupInsertPayload(
+          creatorId: myId,
+          secondUserId: secondUserId,
+          meta: meta,
+          visibleLastMessage: welcomeMsg,
+        );
+
         final Map<String, dynamic> inserted = await supabase
             .from(SupabaseConstants.conversationsTable)
-            .insert(<String, dynamic>{
-              'user1_id': myId,
-              'user2_id': secondUserId,
-              'last_message': encodedLastMsg,
-              'last_message_type': SupabaseConstants.messageTypeText,
-              'last_message_sender_id': myId,
-              'last_message_at': DateTime.now().toUtc().toIso8601String(),
-            })
+            .insert(insertPayload)
             .select()
             .single();
 
@@ -1693,25 +1845,17 @@ class HomeController extends GetxController with WidgetsBindingObserver {
             ...initialMembers,
           ],
         );
-      } catch (_) {
-        // Fallback when 1-on-1 unique constraint or offline mode prevents remote insert:
-        // create locally cached group conversation immediately so it works 100%.
-        createdConv = ConversationModel(
-          id: 'grp_${DateTime.now().millisecondsSinceEpoch}',
-          user1Id: myId,
-          user2Id: secondUserId,
-          lastMessage: welcomeMsg,
-          lastMessageType: SupabaseConstants.messageTypeText,
-          lastMessageSenderId: myId,
-          lastMessageAt: DateTime.now(),
-          createdAt: DateTime.now(),
-          isGroup: true,
-          groupMeta: meta,
-          groupMemberProfiles: <ProfileModel>[
-            if (myProfile.value != null) myProfile.value!,
-            ...initialMembers,
-          ],
+      } catch (e, st) {
+        debugPrint('Error creating group on Supabase: $e\n$st');
+        final String detail = e is PostgrestException ? e.message : e.toString();
+        _showSnack(
+          title: prefs.isArabic ? 'فشل إنشاء المجموعة' : 'Failed to Create Group',
+          message: prefs.isArabic
+              ? 'تعذر إنشاء المجموعة على الخادم: $detail'
+              : 'Could not create group on server: $detail',
+          isError: true,
         );
+        return;
       }
 
       conversations.insert(0, createdConv);
@@ -1771,6 +1915,17 @@ class HomeController extends GetxController with WidgetsBindingObserver {
             .eq('id', groupConv.id);
       } catch (_) {}
     }
+  }
+
+  /// Updates group avatar image across cache & Supabase
+  Future<void> updateGroupAvatar(
+    ConversationModel groupConv,
+    String? newAvatarUrl,
+  ) async {
+    if (groupConv.groupMeta == null) return;
+    final GroupChatMeta updatedMeta =
+        groupConv.groupMeta!.copyWith(avatarUrl: newAvatarUrl ?? '');
+    await updateGroupConversationMeta(groupConv, updatedMeta);
   }
 
   /// Signs the user out, sets online status to false, destroys all local
